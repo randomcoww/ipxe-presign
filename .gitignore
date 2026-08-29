@@ -1,0 +1,6 @@
+ipxe-presign
+*.crt
+*.key
+*.csr
+*.srl
+profiles.yaml
