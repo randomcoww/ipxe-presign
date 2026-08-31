@@ -21,38 +21,38 @@ import (
 
 // fakePresigner returns fixed URLs instead of contacting S3.
 type fakePresigner struct {
-	fail  error
-	urled bool
+	fail   error
+	called []string
 }
 
 func (f *fakePresigner) URL(ctx context.Context, object string) (string, error) {
 	if f.fail != nil {
 		return "", f.fail
 	}
-	f.urled = true
+	f.called = append(f.called, object)
 	return "https://minio.internal:9000/presigned/" + object, nil
 }
 
-func testPresigner() *fakePresigner { return &fakePresigner{} }
-
-func testProfiles() map[string]Profile {
-	return map[string]Profile{
-		"worker-profile": {
-			KernelURL:          "https://minio.internal:9000/boot-assets/fcos/vmlinuz",
-			InitrdURLs:         []string{"https://minio.internal:9000/boot-assets/fcos/initramfs.img"},
-			IgnitionS3Resource: "ignition/worker.ign",
-			RootfsS3Resource:   "fcos/worker-rootfs.img",
-			Kargs: []string{
-				"console=tty0",
-				"ignition.firstboot",
+func testConfig() *Config {
+	return &Config{
+		Profiles: map[string]Profile{
+			"worker-profile": {
+				KernelS3Resource:   "fcos/vmlinuz",
+				InitrdS3Resources:  []string{"fcos/initramfs.img"},
+				IgnitionS3Resource: "ignition/worker.ign",
+				RootfsS3Resource:   "fcos/worker-rootfs.img",
+				Kargs:              []string{"console=tty0", "ignition.firstboot"},
 			},
+		},
+		MACToProfile: map[string]string{
+			"aa:bb:cc:dd:ee:01": "worker-profile",
 		},
 	}
 }
 
 // newTLSRequest builds an http.Request with a fake verified peer
 // certificate carrying the given CN, as http.Request.TLS would hold.
-func newTLSRequest(t *testing.T, cn string, path string) *http.Request {
+func newTLSRequest(t *testing.T, cn string, target string) *http.Request {
 	t.Helper()
 
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
@@ -74,19 +74,27 @@ func newTLSRequest(t *testing.T, cn string, path string) *http.Request {
 		t.Fatalf("parsing certificate: %v", err)
 	}
 
-	req, err := http.NewRequest(http.MethodGet, "https://localhost"+path, nil)
+	req, err := http.NewRequest(http.MethodGet, "https://localhost"+target, nil)
 	if err != nil {
 		t.Fatalf("building request: %v", err)
 	}
-	req.TLS = &tls.ConnectionState{
-		PeerCertificates: []*x509.Certificate{cert},
-	}
+	req.TLS = &tls.ConnectionState{PeerCertificates: []*x509.Certificate{cert}}
 	return req
 }
 
+// invokeHandler runs the handler directly with a request whose r.TLS
+// carries a fake verified peer certificate — how the handler sees a
+// completed mTLS handshake without a live TLS server.
+func invokeHandler(t *testing.T, h http.Handler, cn, target string) *httptest.ResponseRecorder {
+	t.Helper()
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, newTLSRequest(t, cn, target))
+	return rec
+}
+
 func TestClientCommonName(t *testing.T) {
-	if cn := clientCommonName(newTLSRequest(t, "worker-profile", "/")); cn != "worker-profile" {
-		t.Fatalf("clientCommonName = %q, want %q", cn, "worker-profile")
+	if cn := clientCommonName(newTLSRequest(t, "ipxe-node-1", "/")); cn != "ipxe-node-1" {
+		t.Fatalf("clientCommonName = %q, want %q", cn, "ipxe-node-1")
 	}
 	noTLS, _ := http.NewRequest(http.MethodGet, "https://localhost/", nil)
 	if cn := clientCommonName(noTLS); cn != "" {
@@ -94,22 +102,47 @@ func TestClientCommonName(t *testing.T) {
 	}
 }
 
+func TestNormalizeMAC(t *testing.T) {
+	cases := map[string]string{
+		"aa:bb:cc:dd:ee:ff": "aa:bb:cc:dd:ee:ff", // canonical (iPXE ${mac:hexhyp})
+		"AA:BB:CC:DD:EE:FF": "aa:bb:cc:dd:ee:ff", // uppercase
+		"aa-bb-cc-dd-ee-ff": "aa:bb:cc:dd:ee:ff", // dashed
+		"aabb.ccdd.eeff":    "aa:bb:cc:dd:ee:ff", // dotted
+		"aabbccddeeFF":      "aa:bb:cc:dd:ee:ff", // bare
+		" aabbccddee01 ":    "aa:bb:cc:dd:ee:01", // padded + mixed case
+	}
+	for in, want := range cases {
+		got, err := NormalizeMAC(in)
+		if err != nil {
+			t.Errorf("NormalizeMAC(%q) error: %v", in, err)
+			continue
+		}
+		if got != want {
+			t.Errorf("NormalizeMAC(%q) = %q, want %q", in, got, want)
+		}
+	}
+	for _, bad := range []string{"", "aabb", "aabbccddee0", "aabbccddee012", "zz:bb:cc:dd:ee:ff"} {
+		if _, err := NormalizeMAC(bad); err == nil {
+			t.Errorf("NormalizeMAC(%q) should fail", bad)
+		}
+	}
+}
+
 func TestRenderIPXE(t *testing.T) {
 	script, err := RenderIPXE(ipxeScript{
-		KernelURL:   "https://minio.internal:9000/boot-assets/fcos/vmlinuz",
-		InitrdURLs:  []string{"https://minio.internal:9000/boot-assets/fcos/initramfs.img"},
+		KernelURL:   "https://minio.internal:9000/presigned/fcos/vmlinuz?sig=k",
+		InitrdURLs:  []string{"https://minio.internal:9000/presigned/fcos/initramfs.img?sig=i"},
 		Kargs:       []string{"console=tty0", "ignition.firstboot"},
-		IgnitionURL: "https://minio.internal:9000/presigned/ignition/worker.ign?X-Amz-Signature=abc",
-		RootfsURL:   "https://minio.internal:9000/presigned/fcos/worker-rootfs.img?X-Amz-Signature=def",
+		IgnitionURL: "https://minio.internal:9000/presigned/ignition/worker.ign?sig=g",
+		RootfsURL:   "https://minio.internal:9000/presigned/fcos/worker-rootfs.img?sig=r",
 	})
 	if err != nil {
 		t.Fatalf("RenderIPXE: %v", err)
 	}
-
 	for _, want := range []string{
 		"#!ipxe",
-		"kernel https://minio.internal:9000/boot-assets/fcos/vmlinuz console=tty0 ignition.firstboot ignition.url=",
-		"initrd https://minio.internal:9000/boot-assets/fcos/initramfs.img",
+		"kernel https://minio.internal:9000/presigned/fcos/vmlinuz?sig=k console=tty0 ignition.firstboot ignition.url=",
+		"initrd https://minio.internal:9000/presigned/fcos/initramfs.img?sig=i",
 		"\nboot\n",
 	} {
 		if !strings.Contains(script, want) {
@@ -118,31 +151,49 @@ func TestRenderIPXE(t *testing.T) {
 	}
 }
 
-// invokeHandler runs the handler directly with a request whose r.TLS
-// carries a fake verified peer certificate. This is how the handler
-// sees a completed mTLS handshake without a live TLS server.
-func invokeHandler(t *testing.T, h http.Handler, cn string) *httptest.ResponseRecorder {
-	t.Helper()
-	req := newTLSRequest(t, cn, "/")
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, req)
-	return rec
+func TestRenderEntry(t *testing.T) {
+	script, err := RenderEntry("https://ipxe.internal:8443/pxe")
+	if err != nil {
+		t.Fatalf("RenderEntry: %v", err)
+	}
+	want := "#!ipxe\nchain https://ipxe.internal:8443/pxe?mac=${mac:hexhyp}&uuid=${uuid}\n"
+	if script != want {
+		t.Fatalf("entry script = %q, want %q", script, want)
+	}
 }
 
-func TestHandlerMatchedProfile(t *testing.T) {
-	presigner := &fakePresigner{}
-	h := NewHandler(testProfiles(), presigner)
-
-	rec := invokeHandler(t, h, "worker-profile")
-
+func TestEntryAuthorizedAndRenders(t *testing.T) {
+	h := NewHandler("https://ipxe.internal:8443", []string{"ipxe-node-1"}, testConfig(), &fakePresigner{})
+	rec := invokeHandler(t, h, "ipxe-node-1", "/")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", rec.Code)
 	}
-	if !presigner.urled {
-		t.Fatal("expected presigner to be called for matched profile")
+	if !strings.Contains(rec.Body.String(), "chain https://ipxe.internal:8443/pxe?mac=${mac:hexhyp}&uuid=${uuid}") {
+		t.Fatalf("body = %q, want chain to /pxe", rec.Body.String())
+	}
+}
+
+func TestBootMatchedMAC(t *testing.T) {
+	presigner := &fakePresigner{}
+	h := NewHandler("https://ipxe.internal:8443", []string{"ipxe-node-1"}, testConfig(), presigner)
+
+	rec := invokeHandler(t, h, "ipxe-node-1", "/pxe?mac=AA-BB-CC-DD-EE-01&uuid=deadbeef")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	wantPresigned := []string{
+		"fcos/vmlinuz",
+		"fcos/initramfs.img",
+		"ignition/worker.ign",
+		"fcos/worker-rootfs.img",
+	}
+	if strings.Join(presigner.called, ",") != strings.Join(wantPresigned, ",") {
+		t.Errorf("presigned objects = %v, want %v", presigner.called, wantPresigned)
 	}
 	for _, want := range []string{
 		"#!ipxe",
+		"kernel https://minio.internal:9000/presigned/fcos/vmlinuz",
+		"initrd https://minio.internal:9000/presigned/fcos/initramfs.img",
 		"ignition.url=https://minio.internal:9000/presigned/ignition/worker.ign",
 		"rootfs.url=https://minio.internal:9000/presigned/fcos/worker-rootfs.img",
 		"boot",
@@ -153,44 +204,49 @@ func TestHandlerMatchedProfile(t *testing.T) {
 	}
 }
 
-func TestHandlerUnknownProfileExits(t *testing.T) {
+func TestBootUnknownMACExits(t *testing.T) {
 	presigner := &fakePresigner{}
-	h := NewHandler(testProfiles(), presigner)
+	h := NewHandler("https://ipxe.internal:8443", []string{"ipxe-node-1"}, testConfig(), presigner)
 
-	rec := invokeHandler(t, h, "rogue-node")
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200", rec.Code)
+	for _, target := range []string{"/pxe?mac=11:22:33:44:55:66", "/pxe?mac=garbage", "/pxe"} {
+		rec := invokeHandler(t, h, "ipxe-node-1", target)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s: status = %d, want 200", target, rec.Code)
+		}
+		if rec.Body.String() != exitScript {
+			t.Fatalf("%s: body = %q, want exit script", target, rec.Body.String())
+		}
 	}
-	if rec.Body.String() != exitScript {
-		t.Fatalf("body = %q, want exit script\n---\n%s", rec.Body.String(), exitScript)
-	}
-	if presigner.urled {
-		t.Fatal("presigner must not be called for unmatched CN")
+	if len(presigner.called) != 0 {
+		t.Fatalf("presigner called for unmatched MAC: %v", presigner.called)
 	}
 }
 
-func TestHandlerPresignFailure(t *testing.T) {
-	presigner := &fakePresigner{fail: context.DeadlineExceeded}
-	h := NewHandler(testProfiles(), presigner)
+func TestRejectedCN(t *testing.T) {
+	h := NewHandler("https://ipxe.internal:8443", []string{"ipxe-node-1"}, testConfig(), &fakePresigner{})
+	for _, target := range []string{"/", "/pxe?mac=aa:bb:cc:dd:ee:01"} {
+		rec := invokeHandler(t, h, "not-allowed", target)
+		if rec.Code != http.StatusForbidden {
+			t.Fatalf("%s: status = %d, want 403", target, rec.Code)
+		}
+	}
+}
 
-	rec := invokeHandler(t, h, "worker-profile")
+func TestBootPresignFailure(t *testing.T) {
+	presigner := &fakePresigner{fail: context.DeadlineExceeded}
+	h := NewHandler("https://ipxe.internal:8443", []string{"ipxe-node-1"}, testConfig(), presigner)
+	rec := invokeHandler(t, h, "ipxe-node-1", "/pxe?mac=aa:bb:cc:dd:ee:01")
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("status = %d, want 500", rec.Code)
 	}
 }
 
-func TestHandlerHealthz(t *testing.T) {
-	srv := httptest.NewServer(NewHandler(testProfiles(), testPresigner()))
-	defer srv.Close()
-
-	resp, err := srv.Client().Get(srv.URL + "/healthz")
-	if err != nil {
-		t.Fatalf("request: %v", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("status = %d, want 200", resp.StatusCode)
+func TestHealthz(t *testing.T) {
+	h := NewHandler("https://ipxe.internal:8443", []string{"ipxe-node-1"}, testConfig(), &fakePresigner{})
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/healthz", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
 	}
 }
 
@@ -199,34 +255,67 @@ func TestLoadConfig(t *testing.T) {
 
 	valid := `profiles:
   worker-profile:
-    kernel_url: "https://minio.internal:9000/boot-assets/fcos/vmlinuz"
-    initrd_urls:
-      - "https://minio.internal:9000/boot-assets/fcos/initramfs.img"
+    kernel_s3_resource: "fcos/vmlinuz"
+    initrd_s3_resources:
+      - "fcos/initramfs.img"
     ignition_s3_resource: "ignition/worker.ign"
     rootfs_s3_resource: "fcos/worker-rootfs.img"
     kargs:
       - "console=tty0"
+groups:
+  worker-profile:
+    - "AA:BB:CC:DD:EE:01"
+    - "0a:1b:2c:3d:4e:5f"
 `
-	// A profile with an empty kernel_url must reject the whole file.
-	if err := os.WriteFile(path, []byte(strings.Replace(valid, "console=tty0", "console=tty0\n  bad-profile:\n    kernel_url: \"\"\n", 1)), 0o644); err != nil {
-		t.Fatalf("writing config: %v", err)
+	// Group referencing an unknown profile must be rejected.
+	if err := os.WriteFile(path, []byte(strings.Replace(valid, "  worker-profile:\n    - \"AA:BB", "  control-plane:\n    - \"AA:BB", 1)), 0o644); err != nil {
+		t.Fatal(err)
 	}
 	if _, err := LoadConfig(path); err == nil {
-		t.Fatal("expected error for profile with empty kernel_url")
+		t.Fatal("expected error for group referencing unknown profile")
 	}
 
-	if err := os.WriteFile(path, []byte(valid), 0o644); err != nil {
-		t.Fatalf("writing config: %v", err)
+	// Duplicate MAC across groups must be rejected.
+	dup := `profiles:
+  a:
+    kernel_s3_resource: k
+    initrd_s3_resources: [i]
+    ignition_s3_resource: g
+    rootfs_s3_resource: r
+  b:
+    kernel_s3_resource: k
+    initrd_s3_resources: [i]
+    ignition_s3_resource: g
+    rootfs_s3_resource: r
+groups:
+  a:
+    - "aa:bb:cc:dd:ee:01"
+  b:
+    - "aabbccddee01"
+`
+	if err := os.WriteFile(path, []byte(dup), 0o644); err != nil {
+		t.Fatal(err)
 	}
-	profiles, err := LoadConfig(path)
+	if _, err := LoadConfig(path); err == nil {
+		t.Fatal("expected error for MAC assigned to multiple groups")
+	}
+
+	// Happy path.
+	if err := os.WriteFile(path, []byte(valid), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadConfig(path)
 	if err != nil {
 		t.Fatalf("LoadConfig: %v", err)
 	}
-	p, ok := profiles["worker-profile"]
-	if !ok {
-		t.Fatal("worker-profile missing from loaded config")
+	if got := cfg.MACToProfile["aa:bb:cc:dd:ee:01"]; got != "worker-profile" {
+		t.Errorf("MAC aa:bb:cc:dd:ee:01 -> %q, want worker-profile", got)
 	}
-	if p.KernelURL == "" || len(p.InitrdURLs) != 1 || p.IgnitionS3Resource == "" || p.RootfsS3Resource == "" || len(p.Kargs) != 1 {
+	if got := cfg.MACToProfile["0a:1b:2c:3d:4e:5f"]; got != "worker-profile" {
+		t.Errorf("MAC 0a:1b:2c:3d:4e:5f -> %q, want worker-profile", got)
+	}
+	p := cfg.Profiles["worker-profile"]
+	if p.KernelS3Resource == "" || len(p.InitrdS3Resources) != 1 || p.IgnitionS3Resource == "" || p.RootfsS3Resource == "" {
 		t.Fatalf("unexpected profile: %+v", p)
 	}
 }
@@ -236,10 +325,10 @@ func TestProfileValidate(t *testing.T) {
 		t.Fatal("expected error for empty profile")
 	}
 	good := Profile{
-		KernelURL:          "https://k",
-		InitrdURLs:         []string{"https://i"},
-		IgnitionS3Resource: "a.b",
-		RootfsS3Resource:   "c.d",
+		KernelS3Resource:   "k",
+		InitrdS3Resources:  []string{"i"},
+		IgnitionS3Resource: "g",
+		RootfsS3Resource:   "r",
 	}
 	if err := good.Validate(); err != nil {
 		t.Fatalf("good profile rejected: %v", err)
@@ -315,9 +404,9 @@ func writeTestCA(t *testing.T, dir string) error {
 	}
 
 	files := map[string][]byte{
-		"ca.pem":     pemEncode("CERTIFICATE", caDER),
-		"server.crt": pemEncode("CERTIFICATE", serverDER),
-		"server.key": pemEncode("EC PRIVATE KEY", serverKeyDER),
+		"ca.pem":     pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: caDER}),
+		"server.crt": pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: serverDER}),
+		"server.key": pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: serverKeyDER}),
 	}
 	for name, data := range files {
 		if err := os.WriteFile(dir+"/"+name, data, 0o600); err != nil {
@@ -325,8 +414,4 @@ func writeTestCA(t *testing.T, dir string) error {
 		}
 	}
 	return nil
-}
-
-func pemEncode(blockType string, der []byte) []byte {
-	return pem.EncodeToMemory(&pem.Block{Type: blockType, Bytes: der})
 }

@@ -1,14 +1,17 @@
 # Boot profile config for ipxe-presign.
 #
-# Each key under profiles matches a client TLS certificate commonName.
-# A booting node whose certificate carries CN "worker-profile" gets the
-# script rendered from the matching profile below. Unmatched clients
-# receive a bare "#!ipxe / exit" script.
+# profiles:   named boot profiles.
+# groups:     map of MAC addresses to profile names. Group names must be
+#             profile names; each MAC may appear in exactly one group.
+#
+# MACs are matched case-insensitively; the canonical aa:bb:cc:dd:ee:ff
+# form (what iPXE sends as ${mac:hexhyp}) is expected, but dashed,
+# dotted and bare 12-hex forms are accepted.
 profiles:
   worker-profile:
-    kernel_url: "https://minio.internal:9000/boot-assets/fcos/vmlinuz"
-    initrd_urls:
-      - "https://minio.internal:9000/boot-assets/fcos/initramfs.img"
+    kernel_s3_resource: "fcos/vmlinuz"
+    initrd_s3_resources:
+      - "fcos/initramfs.img"
     ignition_s3_resource: "ignition/worker.ign"
     rootfs_s3_resource: "fcos/worker-rootfs.img"
     kargs:
@@ -16,3 +19,19 @@ profiles:
       - "console=ttyS0,115200n8"
       - "ignition.firstboot"
       - "ignition.platform.id=metal"
+  control-plane:
+    kernel_s3_resource: "fcos/vmlinuz"
+    initrd_s3_resources:
+      - "fcos/initramfs.img"
+    ignition_s3_resource: "ignition/control-plane.ign"
+    rootfs_s3_resource: "fcos/control-plane-rootfs.img"
+    kargs:
+      - "console=ttyS0,115200n8"
+      - "ignition.firstboot"
+
+groups:
+  worker-profile:
+    - "aa:bb:cc:dd:ee:01"
+    - "aa:bb:cc:dd:ee:02"
+  control-plane:
+    - "aa:bb:cc:dd:ee:f1"

@@ -1,10 +1,15 @@
-// ipxe-presign is an HTTPS iPXE boot script server.
+// ipxe-presign is an mTLS iPXE boot script server.
 //
-// It presents an iPXE script to PXE-booting nodes over mTLS. The client
-// certificate's commonName selects a boot profile; the rendered script
-// contains kernel/initrd URLs from the profile plus short-lived
-// pre-signed S3 (MinIO) URLs for the ignition and rootfs objects, so
-// nodes never need long-term credentials to fetch sensitive resources.
+// Nodes PXE-boot into iPXE, which fetches a first-stage entry script
+// from this server over mTLS. The entry script chains back to the
+// server's /pxe endpoint with the node's MAC address; the MAC selects
+// the boot profile. The rendered script carries short-lived pre-signed
+// S3 (MinIO) URLs for kernel, initrd, ignition and rootfs, so nodes
+// never need long-term credentials to fetch boot-critical resources.
+//
+// The client certificate is used purely as an authentication gate: it
+// must be signed by the configured CA (enforced at the TLS layer) and
+// its commonName must be in the -client-cns allowlist.
 package main
 
 import (
@@ -18,6 +23,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 )
@@ -27,22 +33,28 @@ func main() {
 
 	var (
 		listenAddr = flag.String("listen-address", "0.0.0.0:8443", "listen address (TLS always enabled)")
+		advertise  = flag.String("advertise-url", "", "public base URL iPXE uses to reach this server, e.g. https://ipxe.internal:8443 (required; used to build the chain URL in the entry script)")
+		clientCNs  = flag.String("client-cns", "", "comma-separated list of allowed client certificate commonNames, e.g. ipxe-node-1,ipxe-node-2 (required)")
 		s3Endpoint = flag.String("s3-endpoint", "", "S3/MinIO endpoint, e.g. minio.internal:9000 (may be prefixed with http:// or https://)")
 		s3Region   = flag.String("s3-region", "us-east-1", "S3 region used to sign pre-signed URLs (MinIO defaults to us-east-1; set it so presigning never queries the endpoint)")
-		s3Bucket   = flag.String("s3-bucket", "", "bucket containing the ignition and rootfs resources")
+		s3Bucket   = flag.String("s3-bucket", "", "bucket containing all boot resources")
 		presignTTL = flag.Duration("presign-duration", 60*time.Second, "validity of pre-signed S3 URLs")
-		configPath = flag.String("config", "", "path to the YAML boot profile config")
+		configPath = flag.String("config", "", "path to the YAML boot profile config file")
 		tlsCert    = flag.String("tls-cert", "", "path to the server TLS certificate (PEM)")
 		tlsKey     = flag.String("tls-key", "", "path to the server TLS private key (PEM)")
 		tlsCA      = flag.String("tls-ca", "", "path to the CA certificate (PEM) used to verify client certificates")
 	)
 	flag.Parse()
 
-	if missing := missingFlags([]string{*s3Endpoint, *s3Bucket, *configPath, *tlsCert, *tlsKey, *tlsCA}); len(missing) > 0 {
+	if missing := missingFlags([]string{*s3Endpoint, *s3Bucket, *configPath, *tlsCert, *tlsKey, *tlsCA, *advertise, *clientCNs}); len(missing) > 0 {
 		log.Fatalf("missing required flags: %v", missing)
 	}
 	if *presignTTL <= 0 {
 		log.Fatal("-presign-duration must be greater than 0")
+	}
+	cns := splitAndTrim(*clientCNs)
+	if len(cns) == 0 {
+		log.Fatal("-client-cns must name at least one commonName")
 	}
 
 	accessKey := os.Getenv("AWS_ACCESS_KEY_ID")
@@ -51,7 +63,7 @@ func main() {
 		log.Fatal("AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY environment variables must be set")
 	}
 
-	profiles, err := LoadConfig(*configPath)
+	cfg, err := LoadConfig(*configPath)
 	if err != nil {
 		log.Fatalf("loading config: %v", err)
 	}
@@ -68,7 +80,7 @@ func main() {
 
 	srv := &http.Server{
 		Addr:         *listenAddr,
-		Handler:      NewHandler(profiles, presigner),
+		Handler:      NewHandler(*advertise, cns, cfg, presigner),
 		TLSConfig:    tlsConfig,
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 10 * time.Second,
@@ -84,7 +96,8 @@ func main() {
 
 	errCh := make(chan error, 1)
 	go func() {
-		log.Printf("listening on %s (mTLS, %d profiles)", *listenAddr, len(profiles))
+		log.Printf("listening on %s (mTLS, %d profiles, %d MAC assignments, %d allowed CNs)",
+			*listenAddr, len(cfg.Profiles), len(cfg.MACToProfile), len(cns))
 		errCh <- srv.ServeTLS(ln, "", "")
 	}()
 
@@ -103,8 +116,8 @@ func main() {
 	}
 }
 
-// buildTLSConfig assembles a TLS configuration that requires and verifies
-// client certificates signed by the given CA.
+// buildTLSConfig assembles a TLS configuration that requires and
+// verifies client certificates signed by the given CA.
 func buildTLSConfig(certPath, keyPath, caPath string) (*tls.Config, error) {
 	cert, err := tls.LoadX509KeyPair(certPath, keyPath)
 	if err != nil {
@@ -128,12 +141,23 @@ func buildTLSConfig(certPath, keyPath, caPath string) (*tls.Config, error) {
 	}, nil
 }
 
+func splitAndTrim(s string) []string {
+	var out []string
+	for _, part := range strings.Split(s, ",") {
+		if part = strings.TrimSpace(part); part != "" {
+			out = append(out, part)
+		}
+	}
+	return out
+}
+
+var flagNames = []string{"-s3-endpoint", "-s3-bucket", "-config", "-tls-cert", "-tls-key", "-tls-ca", "-advertise-url", "-client-cns"}
+
 func missingFlags(values []string) []string {
 	var missing []string
-	names := []string{"-s3-endpoint", "-s3-bucket", "-config", "-tls-cert", "-tls-key", "-tls-ca"}
 	for i, v := range values {
 		if v == "" {
-			missing = append(missing, names[i])
+			missing = append(missing, flagNames[i])
 		}
 	}
 	return missing
