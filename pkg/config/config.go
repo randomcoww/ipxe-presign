@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"slices"
 
 	"gopkg.in/yaml.v3"
 )
@@ -60,12 +61,15 @@ func (p *Profile) mergeOverlay(overlay *Profile) {
 	if overlay.KernelS3Resource != "" {
 		p.KernelS3Resource = overlay.KernelS3Resource
 	}
-	p.InitrdS3Resources = append(p.InitrdS3Resources, overlay.InitrdS3Resources...)
 	if overlay.IgnitionS3Resource != "" {
 		p.IgnitionS3Resource = overlay.IgnitionS3Resource
 	}
 	if overlay.RootfsS3Resource != "" {
 		p.RootfsS3Resource = overlay.RootfsS3Resource
 	}
+	p.InitrdS3Resources = append(p.InitrdS3Resources, overlay.InitrdS3Resources...)
+
 	p.Kargs = append(p.Kargs, overlay.Kargs...)
+	slices.Sort(p.Kargs)
+	p.Kargs = slices.Compact(p.Kargs)
 }

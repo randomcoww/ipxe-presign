@@ -23,22 +23,23 @@ func TestLoadConfig(t *testing.T) {
   overlays:
   - selector:
     - "aa:bb:cc:dd:ee:01"
-    ignition_s3_resource: "ignition/worker-1-v1.ign"
-  - selector:
-    - "aa:bb:cc:dd:ee:01"
-    ignition_s3_resource: "ignition/worker-1-v2.ign"
+    - "aa:bb:cc:dd:ee:02"
+    ignition_s3_resource: "ignition/worker-v1.ign"
     kargs:
     - "console=tty0"
+
+  - selector:
+    - "aa:bb:cc:dd:ee:01"
+    ignition_s3_resource: "ignition/worker-v2.ign"
+    kargs:
     - "console=ttyS0,115200n8"
-    - "worker-1-arg"
 
   - selector:
     - "aa:bb:cc:dd:ee:02"
     initrd_s3_resources:
     - "fcos/initramfs-2.img"
-    ignition_s3_resource: "ignition/worker-2.ign"
     kargs:
-    - "worker-2-arg"
+    - "console=tty0"
   `
 
 	expectedConfig := &Config{
@@ -48,14 +49,13 @@ func TestLoadConfig(t *testing.T) {
 				InitrdS3Resources: []string{
 					"fcos/initramfs.img",
 				},
-				IgnitionS3Resource: "ignition/worker-1-v2.ign",
+				IgnitionS3Resource: "ignition/worker-v2.ign",
 				RootfsS3Resource:   "fcos/worker.img",
 				Kargs: []string{
-					"ignition.firstboot",
-					"ignition.platform.id=metal",
 					"console=tty0",
 					"console=ttyS0,115200n8",
-					"worker-1-arg",
+					"ignition.firstboot",
+					"ignition.platform.id=metal",
 				},
 				Selector: nil,
 			},
@@ -65,12 +65,12 @@ func TestLoadConfig(t *testing.T) {
 					"fcos/initramfs.img",
 					"fcos/initramfs-2.img",
 				},
-				IgnitionS3Resource: "ignition/worker-2.ign",
+				IgnitionS3Resource: "ignition/worker-v1.ign",
 				RootfsS3Resource:   "fcos/worker.img",
 				Kargs: []string{
+					"console=tty0",
 					"ignition.firstboot",
 					"ignition.platform.id=metal",
-					"worker-2-arg",
 				},
 				Selector: nil,
 			},
