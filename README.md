@@ -154,3 +154,21 @@ go run main.go \
   -advertise-url https://ipxe.local:8080 \
   -client-cns ipxe-node
 ```
+
+```bash
+podman run -it --rm  \
+  -e AWS_ACCESS_KEY_ID=minioUser \
+  -e AWS_SECRET_ACCESS_KEY=minioPassword \
+  -v $(pwd)/test:/config \
+  -p 8080:8080 \
+  test \
+  -s3-endpoint https://127.0.0.1:9000 \
+  -s3-bucket ipxe \
+  -config /config/config.yaml.sample \
+  -server-cert /config/outputs/server/tls.crt \
+  -server-key /config/outputs/server/tls.key \
+  -trusted-ca /config/outputs/server/ca.crt \
+  -listen-address 0.0.0.0:8080 \
+  -advertise-url https://ipxe.local:8080 \
+  -client-cns ipxe-node
+```
