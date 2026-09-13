@@ -74,19 +74,19 @@ bucket).
 
 ```yaml
 profiles:
-    kernel_s3_resource: "fcos/vmlinuz"
-    initrd_s3_resources:
-      - "fcos/initramfs.img"
-    ignition_s3_resource: "ignition/worker.ign"
-    rootfs_s3_resource: "fcos/worker-rootfs.img"
-    kargs:
-      - "console=tty0"
-      - "console=ttyS0,115200n8"
-      - "ignition.firstboot"
-      - "ignition.platform.id=metal"
-    macs:
-    - "aa:bb:cc:dd:ee:01"
-    - "aa:bb:cc:dd:ee:02"
+- kernel_s3_resource: "fcos/vmlinuz"
+  initrd_s3_resources:
+  - "fcos/initramfs.img"
+  ignition_s3_resource: "ignition/worker.ign"
+  rootfs_s3_resource: "fcos/worker-rootfs.img"
+  kargs:
+  - "console=tty0"
+  - "console=ttyS0,115200n8"
+  - "ignition.firstboot"
+  - "ignition.platform.id=metal"
+  macs:
+  - "aa:bb:cc:dd:ee:01"
+  - "aa:bb:cc:dd:ee:02"
 ```
 
 - `profiles` keys are profile names. Every `*_s3_resource` /
