@@ -85,8 +85,8 @@ global:
 
 overlays:
 - selector:
-  - "aa:bb:cc:dd:ee:01"
-  - "aa:bb:cc:dd:ee:02"
+  - "aa-bb-cc-dd-ee-01"
+  - "aa-bb-cc-dd-ee-02"
   ignition_s3_resource: "ignition/worker-v1.ign"
   kargs:
   - "console=tty0"

@@ -22,20 +22,20 @@ func TestLoadConfig(t *testing.T) {
 
   overlays:
   - selector:
-    - "aa:bb:cc:dd:ee:01"
-    - "aa:bb:cc:dd:ee:02"
+    - "aa-bb-cc-dd-ee-01"
+    - "aa-bb-cc-dd-ee-02"
     ignition_s3_resource: "ignition/worker-v1.ign"
     kargs:
     - "console=tty0"
 
   - selector:
-    - "aa:bb:cc:dd:ee:01"
+    - "aa-bb-cc-dd-ee-01"
     ignition_s3_resource: "ignition/worker-v2.ign"
     kargs:
     - "console=ttyS0,115200n8"
 
   - selector:
-    - "aa:bb:cc:dd:ee:02"
+    - "aa-bb-cc-dd-ee-02"
     initrd_s3_resources:
     - "fcos/initramfs-2.img"
     kargs:
@@ -44,7 +44,7 @@ func TestLoadConfig(t *testing.T) {
 
 	expectedConfig := &Config{
 		Profiles: map[string]*Profile{
-			"aa:bb:cc:dd:ee:01": &Profile{
+			"aa-bb-cc-dd-ee-01": &Profile{
 				KernelS3Resource: "fcos/vmlinuz",
 				InitrdS3Resources: []string{
 					"fcos/initramfs.img",
@@ -59,7 +59,7 @@ func TestLoadConfig(t *testing.T) {
 				},
 				Selector: nil,
 			},
-			"aa:bb:cc:dd:ee:02": &Profile{
+			"aa-bb-cc-dd-ee-02": &Profile{
 				KernelS3Resource: "fcos/vmlinuz",
 				InitrdS3Resources: []string{
 					"fcos/initramfs.img",

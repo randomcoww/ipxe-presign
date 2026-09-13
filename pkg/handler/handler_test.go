@@ -40,15 +40,13 @@ func (f *fakePresigner) URL(ctx context.Context, object string) (string, error) 
 func testConfig() *config.Config {
 	return &config.Config{
 		Profiles: map[string]*config.Profile{
-			"aa:bb:cc:dd:ee:01": {
+			"aa-bb-cc-dd-ee-01": {
 				KernelS3Resource:   "fcos/vmlinuz",
 				InitrdS3Resources:  []string{"fcos/initramfs.img"},
 				IgnitionS3Resource: "ignition/worker.ign",
 				RootfsS3Resource:   "fcos/worker-rootfs.img",
 				Kargs:              []string{"console=tty0", "ignition.firstboot"},
-				Selector: []string{
-					"aa:bb:cc:dd:ee:01",
-				},
+				Selector:           nil,
 			},
 		},
 	}
@@ -81,7 +79,7 @@ func TestBootMatchedMAC(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create handler: %v", err)
 	}
-	rec := invokeHandler(t, h, "ipxe-node-1", "/ipxe?mac=aa:bb:cc:dd:ee:01&uuid=deadbeef")
+	rec := invokeHandler(t, h, "ipxe-node-1", "/ipxe?mac=aa-bb-cc-dd-ee-01&uuid=deadbeef")
 
 	assert.Equal(t, http.StatusOK, rec.Code)
 	expectedPresigned := []string{
@@ -103,7 +101,7 @@ func TestBootUnknownMACExits(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create handler: %v", err)
 	}
-	for _, target := range []string{"/ipxe?mac=11:22:33:44:55:66", "/ipxe?mac=garbage", "/ipxe"} {
+	for _, target := range []string{"/ipxe?mac=11-22-33-44-55-66", "/ipxe?mac=garbage", "/ipxe"} {
 		rec := invokeHandler(t, h, "ipxe-node-1", target)
 
 		assert.Equal(t, http.StatusOK, rec.Code)
@@ -116,7 +114,7 @@ func TestRejectedCN(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create handler: %v", err)
 	}
-	for _, target := range []string{"/boot.ipxe", "/ipxe?mac=aa:bb:cc:dd:ee:01"} {
+	for _, target := range []string{"/boot.ipxe", "/ipxe?mac=aa-bb-cc-dd-ee-01"} {
 		rec := invokeHandler(t, h, "not-allowed", target)
 
 		assert.Equal(t, http.StatusForbidden, rec.Code)
@@ -128,7 +126,7 @@ func TestBootPresignFailure(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create handler: %v", err)
 	}
-	rec := invokeHandler(t, h, "ipxe-node-1", "/ipxe?mac=aa:bb:cc:dd:ee:01")
+	rec := invokeHandler(t, h, "ipxe-node-1", "/ipxe?mac=aa-bb-cc-dd-ee-01")
 
 	assert.Equal(t, http.StatusInternalServerError, rec.Code)
 }

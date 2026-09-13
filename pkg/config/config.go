@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"slices"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -47,6 +48,7 @@ func LoadConfig(path string) (*Config, error) {
 	}
 	for _, p := range raw.Overlays {
 		for _, mac := range p.Selector {
+			mac = strings.ToLower(mac)
 			if _, ok := cfg.Profiles[mac]; !ok {
 				cfg.Profiles[mac] = &Profile{}
 				cfg.Profiles[mac].mergeOverlay(raw.Global)

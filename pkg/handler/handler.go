@@ -103,7 +103,7 @@ func (h *Handler) serveBoot(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 
-	mac := r.URL.Query().Get("mac")
+	mac := strings.ToLower(r.URL.Query().Get("mac"))
 	profile, ok := h.Profiles[mac]
 	if !ok {
 		w.WriteHeader(http.StatusOK)
