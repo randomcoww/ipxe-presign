@@ -73,21 +73,27 @@ bucket).
 ## Profile config (`-config`)
 
 ```yaml
-profiles:
+global:
 - kernel_s3_resource: "fcos/vmlinuz"
   initrd_s3_resources:
   - "fcos/initramfs.img"
   rootfs_s3_resource: "fcos/worker-rootfs.img"
   kargs:
-  - "console=tty0"
-  - "console=ttyS0,115200n8"
   - "ignition.firstboot"
   - "ignition.platform.id=metal"
 
+overlays:
 - selector:
   - "aa:bb:cc:dd:ee:01"
   - "aa:bb:cc:dd:ee:02"
   ignition_s3_resource: "ignition/worker.ign"
+  kargs:
+  - "console=tty0"
+
+- selector:
+  - "aa:bb:cc:dd:ee:02"
+  kargs:
+  - "console=ttyS0,115200n8"
 ```
 
 - `profiles` keys are profile names. Every `*_s3_resource` /
@@ -131,4 +137,19 @@ tofu -chdir=test init -upgrade && tofu -chdir=test apply
 
 ```bash
 podman play kube test/outputs/minio.yaml
+```
+
+```bash
+AWS_ACCESS_KEY_ID=minioUser \
+AWS_SECRET_ACCESS_KEY=minioPassword \
+go run main.go \
+  -s3-endpoint https://127.0.0.1:9000 \
+  -s3-bucket ipxe \
+  -config test/config.yaml.sample \
+  -server-cert test/outputs/server/tls.crt \
+  -server-key test/outputs/server/tls.key \
+  -trusted-ca test/outputs/server/ca.crt \
+  -listen-address 0.0.0.0:8080 \
+  -advertise-url https://ipxe.local:8080 \
+  -client-cns ipxe-node
 ```

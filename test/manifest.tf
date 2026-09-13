@@ -1,29 +1,29 @@
 locals {
-  base_path         = "outputs"
+  base_path      = "outputs"
   minio_username = "rootUser"
   minio_password = "rootPassword"
   minio_port     = 9000
   minio_bucket   = "ipxe"
 }
 
-resource "local_file" "miinio-ca-cert" {
+resource "local_file" "minio-ca-cert" {
   filename = "${local.base_path}/minio/certs/CAs/ca.crt"
   content  = tls_self_signed_cert.minio-ca.cert_pem
 }
 
-resource "local_file" "miinio-cert" {
+resource "local_file" "minio-cert" {
   filename = "${local.base_path}/minio/certs/public.crt"
   content  = tls_locally_signed_cert.minio.cert_pem
 }
 
-resource "local_file" "miinio-key" {
+resource "local_file" "minio-key" {
   filename = "${local.base_path}/minio/certs/private.key"
   content  = tls_private_key.minio.private_key_pem
 }
 
 resource "local_file" "minio-manifest" {
-  filename             = "${local.base_path}/minio.yaml"
-  content              = yamlencode({
+  filename = "${local.base_path}/minio.yaml"
+  content = yamlencode({
     apiVersion = "v1"
     kind       = "Pod"
     metadata = {
@@ -111,4 +111,19 @@ resource "local_file" "minio-manifest" {
   })
   directory_permission = "0700"
   file_permission      = "0600"
+}
+
+resource "local_file" "server-ca-cert" {
+  filename = "${local.base_path}/server/ca.crt"
+  content  = tls_self_signed_cert.server-ca.cert_pem
+}
+
+resource "local_file" "server-cert" {
+  filename = "${local.base_path}/server/tls.crt"
+  content  = tls_locally_signed_cert.server.cert_pem
+}
+
+resource "local_file" "server-key" {
+  filename = "${local.base_path}/server/tls.key"
+  content  = tls_private_key.server.private_key_pem
 }

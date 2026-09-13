@@ -5,5 +5,5 @@ ipxe-presign
 *.srl
 profiles.yaml
 .terraform*
-*.tfstate
+*.tfstate*
 outputs
