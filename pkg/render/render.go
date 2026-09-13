@@ -1,4 +1,4 @@
-package main
+package render
 
 import (
 	"bytes"
@@ -7,7 +7,7 @@ import (
 )
 
 // ipxeScript is the template input for a rendered boot script.
-type ipxeScript struct {
+type IpxeServe struct {
 	KernelURL   string
 	InitrdURLs  []string
 	Kargs       []string
@@ -34,10 +34,10 @@ chain {{.ChainURL}}?mac=${mac:hexhyp}&uuid=${uuid}
 
 // exitScript is served to authenticated clients whose MAC address
 // matches no group: iPXE stops the boot chain.
-const exitScript = "#!ipxe\nexit\n"
+const ExitScript = "#!ipxe\nexit\n"
 
 // RenderIPXE renders the second-stage boot script.
-func RenderIPXE(s ipxeScript) (string, error) {
+func RenderIPXE(s IpxeServe) (string, error) {
 	var buf bytes.Buffer
 	if err := ipxeTmpl.Execute(&buf, s); err != nil {
 		return "", fmt.Errorf("rendering iPXE boot script: %w", err)

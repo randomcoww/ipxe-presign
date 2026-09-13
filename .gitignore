@@ -4,3 +4,6 @@ ipxe-presign
 *.csr
 *.srl
 profiles.yaml
+.terraform*
+*.tfstate
+outputs

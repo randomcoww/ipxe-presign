@@ -15,9 +15,9 @@ that isn't needed here cut out.
    ```
 
    iPXE substitutes `${mac:hexhyp}` / `${uuid}` at parse time and chains to
-   `/pxe` with the node's MAC address.
+   `/ipxe` with the node's MAC address.
 
-2. The **`/pxe`** endpoint looks the MAC up in the `groups:` config section,
+2. The **`/ipxe`** endpoint looks the MAC up in the `groups:` config section,
    resolves it to a boot profile, and renders the boot script with
    **short-lived pre-signed S3 (MinIO) URLs** for kernel, initrd, ignition
    and rootfs:
@@ -53,22 +53,6 @@ make test       # go test ./...
 
 ## Run
 
-```
-AWS_ACCESS_KEY_ID=... AWS_SECRET_ACCESS_KEY=... \
-ipxe-presign \
-  -listen-address 0.0.0.0:8443 \
-  -advertise-url https://ipxe.internal:8443 \
-  -client-cns ipxe-node-1,ipxe-node-2 \
-  -s3-endpoint minio.internal:9000 \
-  -s3-bucket boot-assets \
-  -s3-region us-east-1 \
-  -presign-duration 60s \
-  -config profiles.yaml \
-  -tls-cert /etc/ipxe-presign/server.crt \
-  -tls-key  /etc/ipxe-presign/server.key \
-  -tls-ca   /etc/ipxe-presign/ca.crt
-```
-
 | Flag | Default | Description |
 |------|---------|-------------|
 | `-listen-address` | `0.0.0.0:8443` | Listen address (always TLS) |
@@ -79,8 +63,8 @@ ipxe-presign \
 | `-s3-bucket` | — | Bucket holding all boot resources (required) |
 | `-presign-duration` | `60s` | Validity of pre-signed URLs |
 | `-config` | — | Path to the YAML profile config (required) |
-| `-tls-cert` / `-tls-key` | — | Server certificate/key (required) |
-| `-tls-ca` | — | CA used to verify client certificates (required) |
+| `-server-cert` / `-server-key` | — | Server certificate/key (required) |
+| `-trusted-ca` | — | CA used to verify client certificates (required) |
 
 Credentials come from `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`
 (any S3-compatible static credentials work; scope the key to read-only on the
@@ -90,7 +74,6 @@ bucket).
 
 ```yaml
 profiles:
-  worker-profile:
     kernel_s3_resource: "fcos/vmlinuz"
     initrd_s3_resources:
       - "fcos/initramfs.img"
@@ -101,13 +84,9 @@ profiles:
       - "console=ttyS0,115200n8"
       - "ignition.firstboot"
       - "ignition.platform.id=metal"
-
-groups:
-  worker-profile:
+    macs:
     - "aa:bb:cc:dd:ee:01"
     - "aa:bb:cc:dd:ee:02"
-  control-plane:
-    - "aa:bb:cc:dd:ee:f1"
 ```
 
 - `profiles` keys are profile names. Every `*_s3_resource` /
@@ -127,32 +106,28 @@ groups:
 
 | Path | Purpose |
 |------|---------|
-| `GET /` | First-stage entry script (static template + advertise URL) |
-| `GET /pxe?mac=...` | Second-stage boot script, profile selected by MAC |
+| `GET /boot.ipxe` | First-stage entry script (static template + advertise URL) |
+| `GET /ipxe?mac=...` | Second-stage boot script, profile selected by MAC |
 | `GET /healthz` | Liveness probe (still behind mTLS) |
 
-## Deployment notes
+## MinIO instance for testing
 
-- **Gateway/ingress**: TLS must terminate at this pod (mTLS passthrough) —
-  the client handshake happens directly with this server, and the server
-  needs the verified client cert for the CN allowlist.
-- **iPXE client side**: iPXE must trust the server CA (`ssl-verify-peer` /
-  pre-seeded CA) and be issued a client cert whose CN is in `-client-cns`.
-  CNs here are *identities of iPXE instances*, e.g. `ipxe-node-1` — not
-  profile names.
-- Presigning is local (SigV4 over static credentials, no network round-trip
-  when the region is set), so this server does not need to reach MinIO to
-  serve scripts — only the node's final GET of the presigned URLs does.
-- Keep `-presign-duration` short; the node's GETs happen within seconds of
-  script render, so 60s is plenty.
+```bash
+tofu() {
+  set -x
+  podman run -it --rm --security-opt label=disable \
+    -v $(pwd):$(pwd) \
+    -w $(pwd) \
+    --net=host \
+    ghcr.io/opentofu/opentofu:latest "$@"
+  rc=$?; set +x; return $rc
+}
+```
 
-## Layout
+```bash
+tofu -chdir=test init -upgrade && tofu -chdir=test apply
+```
 
-| File | Purpose |
-|------|---------|
-| `main.go` | flags, TLS config (mTLS), server, graceful shutdown |
-| `config.go` | YAML profile/group config, MAC normalization, validation |
-| `presign.go` | minio-go client + presigned URL generation |
-| `handler.go` | CN allowlist, `/`, `/pxe` MAC routing, `/healthz` |
-| `render.go` | entry script + boot script templates, exit script |
-| `profiles.example.yaml` | example config |
+```bash
+podman play kube test/outputs/minio.yaml
+```
