@@ -16,7 +16,7 @@ func TestRenderIpxe(t *testing.T) {
 	}
 
 	expectedRender := `#!ipxe
-kernel https://minio.internal:9000/presigned/fcos/vmlinuz?sig=k console=tty0 ignition.firstboot ignition.url=https://minio.internal:9000/presigned/ignition/worker.ign?sig=g rootfs.url=https://minio.internal:9000/presigned/fcos/worker-rootfs.img?sig=r
+kernel https://minio.internal:9000/presigned/fcos/vmlinuz?sig=k console=tty0 ignition.firstboot ignition.config.url=https://minio.internal:9000/presigned/ignition/worker.ign?sig=g coreos.live.rootfs_url=https://minio.internal:9000/presigned/fcos/worker-rootfs.img?sig=r
 initrd https://minio.internal:9000/presigned/fcos/initramfs.img?sig=i
 boot
 `

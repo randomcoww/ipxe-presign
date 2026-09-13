@@ -20,7 +20,7 @@ type IpxeServe struct {
 // rootfs are passed as kernel arguments. If your initramfs expects
 // different argument names, adjust this template.
 var ipxeTmpl = template.Must(template.New("ipxe").Parse(`#!ipxe
-kernel {{.KernelURL}}{{range .Kargs}} {{.}}{{end}} ignition.url={{.IgnitionURL}} rootfs.url={{.RootfsURL}}
+kernel {{.KernelURL}}{{range .Kargs}} {{.}}{{end}} ignition.config.url={{.IgnitionURL}} coreos.live.rootfs_url={{.RootfsURL}}
 {{range .InitrdURLs}}initrd {{.}}
 {{end}}boot
 `))

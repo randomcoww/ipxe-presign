@@ -90,7 +90,7 @@ func TestBootMatchedMAC(t *testing.T) {
 	}
 	assert.Equal(t, expectedPresigned, presigner.called)
 	assert.Equal(t, `#!ipxe
-kernel https://minio.internal:9000/presigned/fcos/vmlinuz console=tty0 ignition.firstboot ignition.url=https://minio.internal:9000/presigned/ignition/worker.ign rootfs.url=https://minio.internal:9000/presigned/fcos/worker-rootfs.img
+kernel https://minio.internal:9000/presigned/fcos/vmlinuz console=tty0 ignition.firstboot ignition.config.url=https://minio.internal:9000/presigned/ignition/worker.ign coreos.live.rootfs_url=https://minio.internal:9000/presigned/fcos/worker-rootfs.img
 initrd https://minio.internal:9000/presigned/fcos/initramfs.img
 boot
 `, rec.Body.String())
