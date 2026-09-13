@@ -74,9 +74,10 @@ bucket).
 
 ```yaml
 global:
-- kernel_s3_resource: "fcos/vmlinuz"
+  kernel_s3_resource: "fcos/vmlinuz"
   initrd_s3_resources:
   - "fcos/initramfs.img"
+  ignition_s3_resource: "ignition/worker.ign"
   rootfs_s3_resource: "fcos/worker-rootfs.img"
   kargs:
   - "ignition.firstboot"
@@ -86,7 +87,7 @@ overlays:
 - selector:
   - "aa:bb:cc:dd:ee:01"
   - "aa:bb:cc:dd:ee:02"
-  ignition_s3_resource: "ignition/worker.ign"
+  ignition_s3_resource: "ignition/worker-v1.ign"
   kargs:
   - "console=tty0"
 
