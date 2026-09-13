@@ -1,18 +1,18 @@
 package render
 
 import (
-	"bytes"
-	"fmt"
-	"text/template"
+  "bytes"
+  "fmt"
+  "text/template"
 )
 
 // ipxeScript is the template input for a rendered boot script.
 type IpxeServe struct {
-	KernelURL   string
-	InitrdURLs  []string
-	Kargs       []string
-	IgnitionURL string
-	RootfsURL   string
+  KernelURL   string
+  InitrdURLs  []string
+  Kargs       []string
+  IgnitionURL string
+  RootfsURL   string
 }
 
 // ipxeTmpl renders the second-stage boot script. The presigned kernel,
@@ -38,19 +38,19 @@ const ExitScript = "#!ipxe\nexit\n"
 
 // RenderIPXE renders the second-stage boot script.
 func RenderIPXE(s IpxeServe) (string, error) {
-	var buf bytes.Buffer
-	if err := ipxeTmpl.Execute(&buf, s); err != nil {
-		return "", fmt.Errorf("rendering iPXE boot script: %w", err)
-	}
-	return buf.String(), nil
+  var buf bytes.Buffer
+  if err := ipxeTmpl.Execute(&buf, s); err != nil {
+    return "", fmt.Errorf("rendering iPXE boot script: %w", err)
+  }
+  return buf.String(), nil
 }
 
 // RenderEntry renders the first-stage entry script that chains back to
 // the given second-stage URL.
 func RenderEntry(chainURL string) (string, error) {
-	var buf bytes.Buffer
-	if err := entryTmpl.Execute(&buf, struct{ ChainURL string }{chainURL}); err != nil {
-		return "", fmt.Errorf("rendering iPXE entry script: %w", err)
-	}
-	return buf.String(), nil
+  var buf bytes.Buffer
+  if err := entryTmpl.Execute(&buf, struct{ ChainURL string }{chainURL}); err != nil {
+    return "", fmt.Errorf("rendering iPXE entry script: %w", err)
+  }
+  return buf.String(), nil
 }
