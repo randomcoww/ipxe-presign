@@ -6,12 +6,15 @@ package presigner
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"path/filepath"
 	"testing"
 	"time"
 
+	"github.com/minio/minio-go/v7"
+	"github.com/randomcoww/ipxe-presign/config"
 	"github.com/randomcoww/ipxe-presign/pkg/tlsutil"
 	"github.com/stretchr/testify/assert"
 )
@@ -22,27 +25,31 @@ const (
 	minioPassword string = "rootPassword"
 )
 
-func TestPresign(t *testing.T) {
-	tlsConfig, err := tlsutil.BuildTLSCAConfig([]string{filepath.Join(baseTestPath, "minio", "certs", "CAs", "ca.crt")})
-	if err != nil {
-		t.Fatalf("Generate test CA: %v", err)
+func TestPresigner(t *testing.T) {
+	yamlConfig := &config.YamlConfig{
+		PresignTTL:   1 * time.Second,
+		S3Endpoint:   "https://127.0.0.1:9000",
+		S3Bucket:     "ipxe",
+		S3Region:     "us-east-1",
+		S3TrustedCAs: []string{filepath.Join(baseTestPath, "minio", "certs", "CAs", "ca.crt")},
 	}
+
 	t.Setenv("AWS_ACCESS_KEY_ID", minioUser)
 	t.Setenv("AWS_SECRET_ACCESS_KEY", minioPassword)
 
-	presigner, err := NewPresigner("https://127.0.0.1:9000", "us-east-1", "ipxe", tlsConfig, 1*time.Second)
+	presigner, err := NewPresignerFromConfig(yamlConfig)
 	assert.NoError(t, err)
 
 	clientCtx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 	defer cancel()
 
-	// --- upload some test data --- //
+	// --- upload some test data ---
 
-	if _, err := presigner.uploadTest(clientCtx, "test-key-1", bytes.NewBufferString("test-val-1")); err != nil {
+	if _, err := uploadTestData(t, presigner, clientCtx, "test-key-1", bytes.NewBufferString("test-val-1")); err != nil {
 		t.Fatalf("Create test data: %v", err)
 	}
 
-	// -- create signed URL for test data -- //
+	// --- create signed URL for test data ---
 
 	presignCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
@@ -50,7 +57,12 @@ func TestPresign(t *testing.T) {
 	url, err := presigner.URL(presignCtx, "test-key-1")
 	assert.NoError(t, err)
 
-	// -- test downloading without credentials -- //
+	// --- test downloading without credentials ---
+
+	tlsConfig, err := tlsutil.BuildTLSCAConfig([]string{filepath.Join(baseTestPath, "minio", "certs", "CAs", "ca.crt")})
+	if err != nil {
+		t.Fatal("Create test TLSConfig: %w", err)
+	}
 
 	client := &http.Client{
 		Transport: &http.Transport{
@@ -67,7 +79,7 @@ func TestPresign(t *testing.T) {
 
 	assert.Equal(t, "test-val-1", string(body))
 
-	// -- should expire -- //
+	// --- should expire ---
 
 	time.Sleep(2 * time.Second)
 
@@ -78,4 +90,28 @@ func TestPresign(t *testing.T) {
 	bodyExpired, err := io.ReadAll(respExpired.Body)
 	assert.NoError(t, err)
 	assert.Contains(t, string(bodyExpired), "Request has expired")
+}
+
+// --- helper ---
+
+func uploadTestData(t *testing.T, p *Presigner, ctx context.Context, key string, reader io.Reader) (int64, error) {
+	t.Helper()
+
+	buf := &bytes.Buffer{}
+	size, err := io.Copy(buf, reader)
+	if err != nil {
+		return size, fmt.Errorf("upload: failed to create buffer: %w", err)
+	}
+	if size == 0 {
+		return size, fmt.Errorf("upload: size is 0")
+	}
+	if _, err = p.client.PutObject(ctx, p.bucket, key, buf, size, minio.PutObjectOptions{
+		AutoChecksum: minio.ChecksumCRC32,
+	}); err != nil {
+		if cleanupErr := p.client.RemoveIncompleteUpload(ctx, p.bucket, key); cleanupErr != nil {
+			return size, fmt.Errorf("upload: failed to put object: %w\n  failed to cleanup incomplete upload: %w", err, cleanupErr)
+		}
+		return size, fmt.Errorf("upload: failed to put object: %w", err)
+	}
+	return size, nil
 }

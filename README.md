@@ -83,10 +83,10 @@ bootIPXETemplate: |
   kernel {{.KernelURL}}{{range .Kargs}} {{.}}{{end}} ignition.config.url={{.IgnitionURL}} coreos.live.rootfs_url={{.RootfsURL}}
   initrd{{range .InitrdURLs}} {{.}}{{end}}
   boot
-ChainIPXETemplate: |
+chainIPXETemplate: |
   #!ipxe
   chain {{.AdvertiseURL}}?mac=${mac:hexhyp}
-ExitIPXEScript: |
+exitIPXEScript: |
   #!ipxe
   exit
 

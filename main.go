@@ -24,9 +24,9 @@ import (
 	"syscall"
 	"time"
 
-	c "github.com/randomcoww/ipxe-presign/pkg/config"
+	c "github.com/randomcoww/ipxe-presign/config"
 	h "github.com/randomcoww/ipxe-presign/pkg/handler"
-	p "github.com/randomcoww/ipxe-presign/pkg/profile"
+	p "github.com/randomcoww/ipxe-presign/pkg/presigner"
 	r "github.com/randomcoww/ipxe-presign/pkg/render"
 )
 
@@ -61,17 +61,19 @@ func run() error {
 		return fmt.Errorf("loading config: %v", err)
 	}
 
-	profiles, err := p.LoadConfig(*configPath)
+	profiles, err := c.NewProfileConfig(cfg)
 	if err != nil {
-		return fmt.Errorf("loading profile config: %v", err)
+		return fmt.Errorf("new profiles: %v", err)
 	}
-
-	renderer, err := r.LoadConfig(*configPath)
+	renderer, err := r.NewRenderFromConfig(cfg)
 	if err != nil {
-		return fmt.Errorf("loading profile config: %v", err)
+		return fmt.Errorf("new renderer: %v", err)
 	}
-
-	handler, err := h.NewHandler(renderer, cfg.AllowedClientCNs, profiles, cfg.Presigner)
+	presigner, err := p.NewPresignerFromConfig(cfg)
+	if err != nil {
+		return fmt.Errorf("new presigner: %v", err)
+	}
+	handler, err := h.NewHandler(renderer, cfg.AllowedClientCNs, profiles, presigner)
 	if err != nil {
 		return fmt.Errorf("new HTTP handler: %v", err)
 	}

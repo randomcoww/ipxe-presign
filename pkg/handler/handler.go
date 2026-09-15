@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/randomcoww/ipxe-presign/pkg/profile"
+	"github.com/randomcoww/ipxe-presign/config"
 	"github.com/randomcoww/ipxe-presign/pkg/render"
 )
 
@@ -27,15 +27,15 @@ type URLPresigner interface {
 // configured CA (enforced at the TLS layer) whose commonName is in the
 // allowlist (enforced here). Profile selection is by MAC address only.
 type Handler struct {
-	Render           *render.Config
-	Profiles         *profile.Config
+	Render           *render.Render
+	Profiles         *config.Profiles
 	Presigner        URLPresigner
 	allowedClientCNs map[string]struct{}
 }
 
 // NewHandler builds a Handler. advertiseURL is the public base URL
 // (scheme + host[:port]) that iPXE uses to reach this server.
-func NewHandler(r *render.Config, allowedClientCNs []string, p *profile.Config, pr URLPresigner) (*Handler, error) {
+func NewHandler(r *render.Render, allowedClientCNs []string, p *config.Profiles, pr URLPresigner) (*Handler, error) {
 	h := &Handler{
 		Render:           r,
 		Profiles:         p,
@@ -118,24 +118,24 @@ func (h *Handler) serveBoot(w http.ResponseWriter, r *http.Request) {
 	_, _ = fmt.Fprint(w, script)
 }
 
-func (h *Handler) appendPresignedURLs(ctx context.Context, p *profile.Profile, ipxe *render.BootIPXE) error {
+func (h *Handler) appendPresignedURLs(ctx context.Context, p *config.Profile, ipxe *render.BootIPXE) error {
 	var err error
-	ipxe.KernelURL, err = h.Presigner.URL(ctx, p.Kernel)
+	ipxe.KernelURL, err = h.Presigner.URL(ctx, p.KernelResource)
 	if err != nil {
 		return err
 	}
-	for _, res := range p.Initrds {
+	for _, res := range p.InitrdResources {
 		u, err := h.Presigner.URL(ctx, res)
 		if err != nil {
 			return err
 		}
 		ipxe.InitrdURLs = append(ipxe.InitrdURLs, u)
 	}
-	ipxe.IgnitionURL, err = h.Presigner.URL(ctx, p.Ignition)
+	ipxe.IgnitionURL, err = h.Presigner.URL(ctx, p.IgnitionResource)
 	if err != nil {
 		return err
 	}
-	ipxe.RootfsURL, err = h.Presigner.URL(ctx, p.Rootfs)
+	ipxe.RootfsURL, err = h.Presigner.URL(ctx, p.RootfsResource)
 	if err != nil {
 		return err
 	}

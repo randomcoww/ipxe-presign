@@ -11,14 +11,15 @@ import (
 	"math/big"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"testing"
 	"text/template"
 	"time"
 
-	"github.com/randomcoww/ipxe-presign/pkg/profile"
+	"github.com/randomcoww/ipxe-presign/config"
 	"github.com/randomcoww/ipxe-presign/pkg/render"
-	"github.com/randomcoww/ipxe-presign/pkg/tlstest"
 	"github.com/randomcoww/ipxe-presign/pkg/tlsutil"
+	"github.com/randomcoww/ipxe-presign/tlstest"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -36,24 +37,24 @@ func (f *fakePresigner) URL(ctx context.Context, object string) (string, error) 
 	return "https://minio.internal:9000/presigned/" + object, nil
 }
 
-func testConfig() *profile.Config {
-	return &profile.Config{
-		BaseProfile: &profile.Profile{},
-		Profiles: map[string]*profile.Profile{
+func testConfig() *config.Profiles {
+	return &config.Profiles{
+		BaseProfile: &config.Profile{},
+		Profiles: map[string]*config.Profile{
 			"aa-bb-cc-dd-ee-01": {
-				Kernel:   "fcos/vmlinuz",
-				Initrds:  []string{"fcos/initramfs.img"},
-				Ignition: "ignition/worker.ign",
-				Rootfs:   "fcos/worker-rootfs.img",
-				Kargs:    []string{"console=tty0", "ignition.firstboot"},
-				Selector: nil,
+				KernelResource:   "fcos/vmlinuz",
+				InitrdResources:  []string{"fcos/initramfs.img"},
+				IgnitionResource: "ignition/worker.ign",
+				RootfsResource:   "fcos/worker-rootfs.img",
+				Kargs:            []string{"console=tty0", "ignition.firstboot"},
+				Selector:         nil,
 			},
 		},
 	}
 }
 
-func testRenderer() *render.Config {
-	return &render.Config{
+func testRenderer() *render.Render {
+	return &render.Render{
 		BootIPXETemplate: template.Must(template.New("boot").Parse(`#!ipxe
 kernel {{.KernelURL}}{{range .Kargs}} {{.}}{{end}} ignition.config.url={{.IgnitionURL}} coreos.live.rootfs_url={{.RootfsURL}}
 initrd{{range .InitrdURLs}} {{.}}{{end}}
@@ -161,11 +162,13 @@ func TestHealthz(t *testing.T) {
 }
 
 func TestBuildTLSConfigRequiresClientCert(t *testing.T) {
-	dir := t.TempDir()
-	if err := tlstest.WriteTestCA(t, dir); err != nil {
+	tlsDir := t.TempDir()
+	if err := tlstest.WriteTestCA(t, tlsDir); err != nil {
 		t.Fatal(err)
 	}
-	tlsConfig, err := tlsutil.BuildTLSConfig(dir+"/server.crt", dir+"/server.key", []string{dir + "/ca.pem"})
+	tlsConfig, err := tlsutil.BuildTLSConfig(filepath.Join(tlsDir, "server.crt"), filepath.Join(tlsDir, "server.key"), []string{
+		filepath.Join(tlsDir, "ca.pem"),
+	})
 	if err != nil {
 		t.Fatalf("buildTLSConfig: %v", err)
 	}

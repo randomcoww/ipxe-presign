@@ -1,11 +1,9 @@
 package presigner
 
 import (
-	"bytes"
 	"context"
 	"crypto/tls"
 	"fmt"
-	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -13,15 +11,43 @@ import (
 
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
+	"github.com/randomcoww/ipxe-presign/config"
+	"github.com/randomcoww/ipxe-presign/pkg/tlsutil"
 )
 
 // Presigner issues short-lived pre-signed GET URLs for objects in a
 // single bucket. Presigning is a local SigV4 operation — with a region
 // configured, no network round-trip to the S3 endpoint is performed.
 type Presigner struct {
-	client *minio.Client
-	bucket string
-	ttl    time.Duration
+	client    *minio.Client
+	bucket    string
+	ttl       time.Duration
+	TLSConfig *tls.Config
+}
+
+func NewPresignerFromConfig(raw *config.YamlConfig) (*Presigner, error) {
+	if raw.PresignTTL <= 0 {
+		return nil, fmt.Errorf("presignTTL must be greater than 0")
+	}
+	if raw.S3Bucket == "" {
+		return nil, fmt.Errorf("missing s3Bucket")
+	}
+	u, err := url.Parse(raw.S3Endpoint)
+	if err != nil {
+		return nil, fmt.Errorf("parse advertise url: %w", err)
+	}
+	if u.Scheme != "https" {
+		return nil, fmt.Errorf("S3 URL scheme must be HTTPS")
+	}
+	tlsConfig, err := tlsutil.BuildTLSCAConfig(raw.S3TrustedCAs)
+	if err != nil {
+		return nil, fmt.Errorf("building S3 TLS config: %w", err)
+	}
+	presigner, err := NewPresigner(fmt.Sprintf("%s://%s", u.Scheme, u.Host), raw.S3Region, raw.S3Bucket, tlsConfig, raw.PresignTTL)
+	if err != nil {
+		return nil, fmt.Errorf("presigner client: %v", err)
+	}
+	return presigner, nil
 }
 
 // NewPresigner builds a S3 client from endpoint, region, and static
@@ -65,24 +91,4 @@ func (p *Presigner) URL(ctx context.Context, object string) (string, error) {
 		return "", fmt.Errorf("presigning %s/%s: %w", p.bucket, object, err)
 	}
 	return u.String(), nil
-}
-
-func (p *Presigner) uploadTest(ctx context.Context, key string, reader io.Reader) (int64, error) {
-	buf := &bytes.Buffer{}
-	size, err := io.Copy(buf, reader)
-	if err != nil {
-		return size, fmt.Errorf("upload: failed to create buffer: %w", err)
-	}
-	if size == 0 {
-		return size, fmt.Errorf("upload: size is 0")
-	}
-	if _, err = p.client.PutObject(ctx, p.bucket, key, buf, size, minio.PutObjectOptions{
-		AutoChecksum: minio.ChecksumCRC32,
-	}); err != nil {
-		if cleanupErr := p.client.RemoveIncompleteUpload(ctx, p.bucket, key); cleanupErr != nil {
-			return size, fmt.Errorf("upload: failed to put object: %w\n  failed to cleanup incomplete upload: %w", err, cleanupErr)
-		}
-		return size, fmt.Errorf("upload: failed to put object: %w", err)
-	}
-	return size, nil
 }
