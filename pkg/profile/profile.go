@@ -10,13 +10,13 @@ import (
 )
 
 type yamlConfig struct {
-	GlobalProfile   *Profile   `yaml:"globalProfile"`
+	BaseProfile     *Profile   `yaml:"baseProfile"`
 	OverlayProfiles []*Profile `yaml:"overlayProfiles"`
 }
 
 type Config struct {
-	GlobalProfile *Profile
-	Profiles      map[string]*Profile
+	BaseProfile *Profile
+	Profiles    map[string]*Profile
 }
 
 // Profile describes how a node boots. Every resource is an object key
@@ -29,10 +29,6 @@ type Profile struct {
 	Ignition string   `yaml:"ignition,omitempty"`
 	Rootfs   string   `yaml:"rootfs,omitempty"`
 	Kargs    []string `yaml:"kargs,omitempty"`
-
-	AdvertiseURL      string `yaml:"advertiseURL"`
-	ChainIPXETemplate string `yaml:"chainIPXETemplate,omitempty"`
-	BootIPXETemplate  string `yaml:"bootIPXETemplate,omitempty"`
 }
 
 // LoadConfig reads and validates the boot profile config file.
@@ -47,31 +43,16 @@ func LoadConfig(path string) (*Config, error) {
 	}
 
 	cfg := &Config{
-		GlobalProfile: &Profile{
-			// First-stage script. iPXE substitutes ${mac:hexhyp}
-			// and ${uuid} at parse time, then chains to the second-stage URL with
-			// the node's MAC address — which is what selects the boot profile.
-			ChainIPXETemplate: `#!ipxe
-chain {{.AdvertiseURL}}?mac=${mac:hexhyp}
-`,
-			// Second-stage boot script. The presigned kernel,
-			// initrd, ignition and rootfs URLs are substituted in; ignition and
-			// rootfs are passed as kernel arguments.
-			BootIPXETemplate: `#!ipxe
-kernel {{.Kernel}}{{range .Kargs}} {{.}}{{end}} ignition.config.url={{.Ignition}} coreos.live.rootfs_url={{.Rootfs}}
-initrd {{range .Initrds}} {{.}}{{end}}
-boot
-`,
-		},
-		Profiles: make(map[string]*Profile),
+		BaseProfile: &Profile{},
+		Profiles:    make(map[string]*Profile),
 	}
-	cfg.GlobalProfile.mergeOverlay(raw.GlobalProfile)
+	cfg.BaseProfile.mergeOverlay(raw.BaseProfile)
 	for _, p := range raw.OverlayProfiles {
 		for _, mac := range p.Selector {
 			mac = strings.ToLower(mac)
 			if _, ok := cfg.Profiles[mac]; !ok {
 				cfg.Profiles[mac] = &Profile{}
-				cfg.Profiles[mac].mergeOverlay(cfg.GlobalProfile)
+				cfg.Profiles[mac].mergeOverlay(cfg.BaseProfile)
 			}
 			cfg.Profiles[mac].mergeOverlay(p)
 		}
@@ -93,14 +74,4 @@ func (p *Profile) mergeOverlay(overlay *Profile) {
 	p.Kargs = append(p.Kargs, overlay.Kargs...)
 	slices.Sort(p.Kargs)
 	p.Kargs = slices.Compact(p.Kargs)
-
-	if overlay.AdvertiseURL != "" {
-		p.AdvertiseURL = overlay.AdvertiseURL
-	}
-	if overlay.ChainIPXETemplate != "" {
-		p.ChainIPXETemplate = overlay.ChainIPXETemplate
-	}
-	if overlay.BootIPXETemplate != "" {
-		p.BootIPXETemplate = overlay.BootIPXETemplate
-	}
 }

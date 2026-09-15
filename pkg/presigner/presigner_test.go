@@ -23,7 +23,7 @@ const (
 )
 
 func TestPresign(t *testing.T) {
-	tlsConfig, err := tlsutil.BuildTLSCAConfig(filepath.Join(baseTestPath, "minio", "certs", "CAs", "ca.crt"))
+	tlsConfig, err := tlsutil.BuildTLSCAConfig([]string{filepath.Join(baseTestPath, "minio", "certs", "CAs", "ca.crt")})
 	if err != nil {
 		t.Fatalf("Generate test CA: %v", err)
 	}

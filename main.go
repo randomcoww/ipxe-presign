@@ -21,14 +21,13 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"regexp"
 	"syscall"
 	"time"
 
 	c "github.com/randomcoww/ipxe-presign/pkg/config"
 	h "github.com/randomcoww/ipxe-presign/pkg/handler"
-	ps "github.com/randomcoww/ipxe-presign/pkg/presigner"
-	"github.com/randomcoww/ipxe-presign/pkg/tlsutil"
+	p "github.com/randomcoww/ipxe-presign/pkg/profile"
+	r "github.com/randomcoww/ipxe-presign/pkg/render"
 )
 
 func main() {
@@ -41,33 +40,14 @@ func main() {
 
 func run() error {
 	log.SetFlags(log.LstdFlags)
-	reList := regexp.MustCompile(`\s*,\s*`)
 
 	var (
-		listenAddr  = flag.String("listen-address", "0.0.0.0:8443", "listen address (TLS always enabled)")
-		advertise   = flag.String("advertise-url", "", "public base URL iPXE uses to reach this server, e.g. https://ipxe.internal:8443 (required; used to build the chain URL in the entry script)")
-		clientCNs   = flag.String("client-cns", "", "comma-separated list of allowed client certificate commonNames, e.g. ipxe-node-1,ipxe-node-2 (required)")
-		s3Endpoint  = flag.String("s3-endpoint", "", "S3/MinIO endpoint, e.g. minio.internal:9000 (may be prefixed with http:// or https://)")
-		s3Region    = flag.String("s3-region", "us-east-1", "S3 region used to sign pre-signed URLs (MinIO defaults to us-east-1; set it so presigning never queries the endpoint)")
-		s3Bucket    = flag.String("s3-bucket", "", "bucket containing all boot resources")
-		s3TrustedCA = flag.String("s3-trusted-ca", "", "path to the CA certificate (PEM) used to verify self hosted S3")
-		presignTTL  = flag.Duration("presign-duration", 60*time.Second, "validity of pre-signed S3 URLs")
-		configPath  = flag.String("config", "", "path to the YAML boot profile config file")
-		serverCert  = flag.String("server-cert", "", "path to the server TLS certificate (PEM)")
-		serverKey   = flag.String("server-key", "", "path to the server TLS private key (PEM)")
-		trustedCA   = flag.String("trusted-ca", "", "path to the CA certificate (PEM) used to verify client certificates")
+		configPath = flag.String("config", "", "path to the YAML boot profile config file")
 	)
 	flag.Parse()
 
-	if missing := missingFlags([]string{*s3Endpoint, *s3Bucket, *configPath, *serverCert, *serverKey, *trustedCA, *advertise, *clientCNs}); len(missing) > 0 {
+	if missing := missingFlags([]string{*configPath}); len(missing) > 0 {
 		log.Fatalf("missing required flags: %v", missing)
-	}
-	if *presignTTL <= 0 {
-		return fmt.Errorf("-presign-duration must be greater than 0")
-	}
-	cns := reList.Split(*clientCNs, -1)
-	if len(cns) == 0 {
-		return fmt.Errorf("-client-cns must name at least one commonName")
 	}
 
 	accessKey := os.Getenv("AWS_ACCESS_KEY_ID")
@@ -81,30 +61,25 @@ func run() error {
 		return fmt.Errorf("loading config: %v", err)
 	}
 
-	s3TLSConfig, err := tlsutil.BuildTLSCAConfig(*s3TrustedCA)
+	profiles, err := p.LoadConfig(*configPath)
 	if err != nil {
-		return fmt.Errorf("building S3 TLS config: %v", err)
+		return fmt.Errorf("loading profile config: %v", err)
 	}
 
-	presigner, err := ps.NewPresigner(*s3Endpoint, *s3Region, *s3Bucket, s3TLSConfig, *presignTTL)
+	renderer, err := r.LoadConfig(*configPath)
 	if err != nil {
-		return fmt.Errorf("initializing S3 presigner: %v", err)
+		return fmt.Errorf("loading profile config: %v", err)
 	}
 
-	serverTLSConfig, err := tlsutil.BuildTLSConfig(*serverCert, *serverKey, *trustedCA)
-	if err != nil {
-		return fmt.Errorf("building TLS config: %v", err)
-	}
-
-	handler, err := h.NewHandler(*advertise, cns, cfg, presigner)
+	handler, err := h.NewHandler(renderer, cfg.AllowedClientCNs, profiles, cfg.Presigner)
 	if err != nil {
 		return fmt.Errorf("new HTTP handler: %v", err)
 	}
 
 	srv := &http.Server{
-		Addr:         *listenAddr,
+		Addr:         cfg.Listen,
 		Handler:      handler,
-		TLSConfig:    serverTLSConfig,
+		TLSConfig:    cfg.ServerTLSConfig,
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 10 * time.Second,
 	}
@@ -112,14 +87,14 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	ln, err := net.Listen("tcp", *listenAddr)
+	ln, err := net.Listen("tcp", cfg.Listen)
 	if err != nil {
-		return fmt.Errorf("listening on %s: %v", *listenAddr, err)
+		return fmt.Errorf("listening on %s: %v", cfg.Listen, err)
 	}
 
 	errCh := make(chan error, 1)
 	go func() {
-		log.Printf("listening on %s", *listenAddr)
+		log.Printf("listening on %s", cfg.Listen)
 		errCh <- srv.ServeTLS(ln, "", "")
 	}()
 
@@ -140,7 +115,7 @@ func run() error {
 	return nil
 }
 
-var flagNames = []string{"-s3-endpoint", "-s3-bucket", "-config", "-server-cert", "-server-key", "-trusted-ca", "-advertise-url", "-client-cns"}
+var flagNames = []string{"-config"}
 
 func missingFlags(values []string) []string {
 	var missing []string

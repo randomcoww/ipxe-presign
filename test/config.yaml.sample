@@ -1,16 +1,47 @@
-global:
-  kernel_s3_resource: "fcos/vmlinuz"
-  initrd_s3_resources:
+listen: "0.0.0.0:8443"
+serverCert: "/config/outputs/server/tls.crt"
+serverKey: "/config/outputs/server/tls.key"
+trustedCAs:
+- "/config/outputs/server/ca.crt"
+allowedClientCNs:
+- "ipxe-node-1"
+s3Endpoint: "https://127.0.0.1:9000"
+s3Bucket: "boot"
+s3TrustedCAs:
+- "/config/outputs/minio/certs/CAs/ca.crt"
+PresignTTL: "60s"
+
+advertiseURL: "https://ipxe.local:8443"
+bootIPXETemplate: |
+  #!ipxe
+  kernel {{.KernelURL}}{{range .Kargs}} {{.}}{{end}} ignition.config.url={{.IgnitionURL}} coreos.live.rootfs_url={{.RootfsURL}}
+  initrd{{range .InitrdURLs}} {{.}}{{end}}
+  boot
+ChainIPXETemplate: |
+  #!ipxe
+  chain {{.AdvertiseURL}}?mac=${mac:hexhyp}
+ExitIPXEScript: |
+  #!ipxe
+  exit
+
+baseProfile:
+  kernel: "fcos/vmlinuz"
+  initrds:
   - "fcos/initramfs.img"
-  rootfs_s3_resource: "fcos/worker-rootfs.img"
+  ignition: "ignition/worker.ign"
+  rootfs: "fcos/worker-rootfs.img"
   kargs:
   - "ignition.firstboot"
   - "ignition.platform.id=metal"
 
-overlays:
+overlayProfiless:
 - selector:
   - "aa-bb-cc-dd-ee-01"
   - "aa-bb-cc-dd-ee-02"
-  ignition_s3_resource: "ignition/worker.ign"
+  ignition: "ignition/worker-v1.ign"
   kargs:
   - "console=tty0"
+- selector:
+  - "aa-bb-cc-dd-ee-02"
+  kargs:
+  - "console=ttyS0,115200n8"

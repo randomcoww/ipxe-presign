@@ -8,17 +8,16 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
-	"encoding/pem"
 	"math/big"
-	"net"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"testing"
+	"text/template"
 	"time"
 
-	"github.com/randomcoww/ipxe-presign/pkg/config"
+	"github.com/randomcoww/ipxe-presign/pkg/profile"
 	"github.com/randomcoww/ipxe-presign/pkg/render"
+	"github.com/randomcoww/ipxe-presign/pkg/tlstest"
 	"github.com/randomcoww/ipxe-presign/pkg/tlsutil"
 	"github.com/stretchr/testify/assert"
 )
@@ -37,18 +36,35 @@ func (f *fakePresigner) URL(ctx context.Context, object string) (string, error) 
 	return "https://minio.internal:9000/presigned/" + object, nil
 }
 
-func testConfig() *config.Config {
-	return &config.Config{
-		Profiles: map[string]*config.Profile{
+func testConfig() *profile.Config {
+	return &profile.Config{
+		BaseProfile: &profile.Profile{},
+		Profiles: map[string]*profile.Profile{
 			"aa-bb-cc-dd-ee-01": {
-				KernelS3Resource:   "fcos/vmlinuz",
-				InitrdS3Resources:  []string{"fcos/initramfs.img"},
-				IgnitionS3Resource: "ignition/worker.ign",
-				RootfsS3Resource:   "fcos/worker-rootfs.img",
-				Kargs:              []string{"console=tty0", "ignition.firstboot"},
-				Selector:           nil,
+				Kernel:   "fcos/vmlinuz",
+				Initrds:  []string{"fcos/initramfs.img"},
+				Ignition: "ignition/worker.ign",
+				Rootfs:   "fcos/worker-rootfs.img",
+				Kargs:    []string{"console=tty0", "ignition.firstboot"},
+				Selector: nil,
 			},
 		},
+	}
+}
+
+func testRenderer() *render.Config {
+	return &render.Config{
+		BootIPXETemplate: template.Must(template.New("boot").Parse(`#!ipxe
+kernel {{.KernelURL}}{{range .Kargs}} {{.}}{{end}} ignition.config.url={{.IgnitionURL}} coreos.live.rootfs_url={{.RootfsURL}}
+initrd{{range .InitrdURLs}} {{.}}{{end}}
+boot
+`)),
+		ChainIPXEScript: `#!ipxe
+chain https://ipxe.internal:8443/ipxe?mac=${mac:hexhyp}
+`,
+		ExitIPXEScript: `#!ipxe
+exit
+`,
 	}
 }
 
@@ -61,7 +77,7 @@ func TestClientCommonName(t *testing.T) {
 }
 
 func TestEntryAuthorizedAndRenders(t *testing.T) {
-	h, err := NewHandler("https://ipxe.internal:8443", []string{"ipxe-node-1"}, testConfig(), &fakePresigner{})
+	h, err := NewHandler(testRenderer(), []string{"ipxe-node-1"}, testConfig(), &fakePresigner{})
 	if err != nil {
 		t.Fatalf("Create handler: %v", err)
 	}
@@ -69,17 +85,17 @@ func TestEntryAuthorizedAndRenders(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, rec.Code)
 	assert.Equal(t, `#!ipxe
-chain https://ipxe.internal:8443/ipxe?mac=${mac:hexhyp}&uuid=${uuid}
+chain https://ipxe.internal:8443/ipxe?mac=${mac:hexhyp}
 `, rec.Body.String())
 }
 
 func TestBootMatchedMAC(t *testing.T) {
 	presigner := &fakePresigner{}
-	h, err := NewHandler("https://ipxe.internal:8443", []string{"ipxe-node-1"}, testConfig(), presigner)
+	h, err := NewHandler(testRenderer(), []string{"ipxe-node-1"}, testConfig(), presigner)
 	if err != nil {
 		t.Fatalf("Create handler: %v", err)
 	}
-	rec := invokeHandler(t, h, "ipxe-node-1", "/ipxe?mac=aa-bb-cc-dd-ee-01&uuid=deadbeef")
+	rec := invokeHandler(t, h, "ipxe-node-1", "/ipxe?mac=aa-bb-cc-dd-ee-01")
 
 	assert.Equal(t, http.StatusOK, rec.Code)
 	expectedPresigned := []string{
@@ -97,7 +113,7 @@ boot
 }
 
 func TestBootUnknownMACExits(t *testing.T) {
-	h, err := NewHandler("https://ipxe.internal:8443", []string{"ipxe-node-1"}, testConfig(), &fakePresigner{})
+	h, err := NewHandler(testRenderer(), []string{"ipxe-node-1"}, testConfig(), &fakePresigner{})
 	if err != nil {
 		t.Fatalf("Create handler: %v", err)
 	}
@@ -105,12 +121,14 @@ func TestBootUnknownMACExits(t *testing.T) {
 		rec := invokeHandler(t, h, "ipxe-node-1", target)
 
 		assert.Equal(t, http.StatusOK, rec.Code)
-		assert.Equal(t, render.ExitScript, rec.Body.String())
+		assert.Equal(t, `#!ipxe
+exit
+`, rec.Body.String())
 	}
 }
 
 func TestRejectedCN(t *testing.T) {
-	h, err := NewHandler("https://ipxe.internal:8443", []string{"ipxe-node-1"}, testConfig(), &fakePresigner{})
+	h, err := NewHandler(testRenderer(), []string{"ipxe-node-1"}, testConfig(), &fakePresigner{})
 	if err != nil {
 		t.Fatalf("Create handler: %v", err)
 	}
@@ -122,7 +140,7 @@ func TestRejectedCN(t *testing.T) {
 }
 
 func TestBootPresignFailure(t *testing.T) {
-	h, err := NewHandler("https://ipxe.internal:8443", []string{"ipxe-node-1"}, testConfig(), &fakePresigner{fail: context.DeadlineExceeded})
+	h, err := NewHandler(testRenderer(), []string{"ipxe-node-1"}, testConfig(), &fakePresigner{fail: context.DeadlineExceeded})
 	if err != nil {
 		t.Fatalf("Create handler: %v", err)
 	}
@@ -132,7 +150,7 @@ func TestBootPresignFailure(t *testing.T) {
 }
 
 func TestHealthz(t *testing.T) {
-	h, err := NewHandler("https://ipxe.internal:8443", []string{"ipxe-node-1"}, testConfig(), &fakePresigner{})
+	h, err := NewHandler(testRenderer(), []string{"ipxe-node-1"}, testConfig(), &fakePresigner{})
 	if err != nil {
 		t.Fatalf("Create handler: %v", err)
 	}
@@ -144,10 +162,10 @@ func TestHealthz(t *testing.T) {
 
 func TestBuildTLSConfigRequiresClientCert(t *testing.T) {
 	dir := t.TempDir()
-	if err := writeTestCA(t, dir); err != nil {
+	if err := tlstest.WriteTestCA(t, dir); err != nil {
 		t.Fatal(err)
 	}
-	tlsConfig, err := tlsutil.BuildTLSConfig(dir+"/server.crt", dir+"/server.key", dir+"/ca.pem")
+	tlsConfig, err := tlsutil.BuildTLSConfig(dir+"/server.crt", dir+"/server.key", []string{dir + "/ca.pem"})
 	if err != nil {
 		t.Fatalf("buildTLSConfig: %v", err)
 	}
@@ -157,67 +175,6 @@ func TestBuildTLSConfigRequiresClientCert(t *testing.T) {
 }
 
 // --- helpers ---
-
-func writeTestCA(t *testing.T, dir string) error {
-	t.Helper()
-
-	caKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	if err != nil {
-		return err
-	}
-	caTmpl := &x509.Certificate{
-		SerialNumber:          big.NewInt(1),
-		Subject:               pkix.Name{CommonName: "ipxe-presign-test-ca"},
-		NotBefore:             time.Now().Add(-time.Hour),
-		NotAfter:              time.Now().Add(24 * time.Hour),
-		IsCA:                  true,
-		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageCRLSign,
-		BasicConstraintsValid: true,
-	}
-	caDER, err := x509.CreateCertificate(rand.Reader, caTmpl, caTmpl, &caKey.PublicKey, caKey)
-	if err != nil {
-		return err
-	}
-	caCert, err := x509.ParseCertificate(caDER)
-	if err != nil {
-		return err
-	}
-
-	serverKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	if err != nil {
-		return err
-	}
-	serverTmpl := &x509.Certificate{
-		SerialNumber: big.NewInt(2),
-		Subject:      pkix.Name{CommonName: "ipxe-presign.test"},
-		NotBefore:    time.Now().Add(-time.Hour),
-		NotAfter:     time.Now().Add(24 * time.Hour),
-		KeyUsage:     x509.KeyUsageDigitalSignature,
-		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
-		DNSNames:     []string{"ipxe-presign.test", "localhost"},
-		IPAddresses:  []net.IP{net.ParseIP("127.0.0.1")},
-	}
-	serverDER, err := x509.CreateCertificate(rand.Reader, serverTmpl, caCert, &serverKey.PublicKey, caKey)
-	if err != nil {
-		return err
-	}
-	serverKeyDER, err := x509.MarshalECPrivateKey(serverKey)
-	if err != nil {
-		return err
-	}
-
-	files := map[string][]byte{
-		"ca.pem":     pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: caDER}),
-		"server.crt": pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: serverDER}),
-		"server.key": pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: serverKeyDER}),
-	}
-	for name, data := range files {
-		if err := os.WriteFile(dir+"/"+name, data, 0o600); err != nil {
-			return err
-		}
-	}
-	return nil
-}
 
 // newTLSRequest builds an http.Request with a fake verified peer
 // certificate carrying the given CN, as http.Request.TLS would hold.

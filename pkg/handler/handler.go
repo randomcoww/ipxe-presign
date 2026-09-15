@@ -5,10 +5,9 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"net/url"
 	"strings"
 
-	"github.com/randomcoww/ipxe-presign/pkg/config"
+	"github.com/randomcoww/ipxe-presign/pkg/profile"
 	"github.com/randomcoww/ipxe-presign/pkg/render"
 )
 
@@ -28,30 +27,23 @@ type URLPresigner interface {
 // configured CA (enforced at the TLS layer) whose commonName is in the
 // allowlist (enforced here). Profile selection is by MAC address only.
 type Handler struct {
-	AdvertiseURL *url.URL
-	AllowedCNs   map[string]struct{}
-	Profiles     map[string]*config.Profile
-	Presigner    URLPresigner
+	Render           *render.Config
+	Profiles         *profile.Config
+	Presigner        URLPresigner
+	allowedClientCNs map[string]struct{}
 }
 
 // NewHandler builds a Handler. advertiseURL is the public base URL
 // (scheme + host[:port]) that iPXE uses to reach this server.
-func NewHandler(advertiseURL string, allowedCNs []string, cfg *config.Config, presigner URLPresigner) (*Handler, error) {
-	u, err := url.Parse(advertiseURL)
-	if err != nil {
-		return nil, err
-	}
-	if u.Scheme != "https" {
-		return nil, fmt.Errorf("advertise URL scheme must be HTTPS")
-	}
+func NewHandler(r *render.Config, allowedClientCNs []string, p *profile.Config, pr URLPresigner) (*Handler, error) {
 	h := &Handler{
-		AdvertiseURL: u,
-		Profiles:     cfg.Profiles,
-		Presigner:    presigner,
-		AllowedCNs:   make(map[string]struct{}, len(allowedCNs)),
+		Render:           r,
+		Profiles:         p,
+		Presigner:        pr,
+		allowedClientCNs: make(map[string]struct{}, len(allowedClientCNs)),
 	}
-	for _, cn := range allowedCNs {
-		h.AllowedCNs[cn] = struct{}{}
+	for _, cn := range allowedClientCNs {
+		h.allowedClientCNs[cn] = struct{}{}
 	}
 	return h, nil
 }
@@ -80,15 +72,9 @@ func (h *Handler) serveEntry(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	script, err := render.RenderEntry(fmt.Sprintf("%s://%s/ipxe", h.AdvertiseURL.Scheme, h.AdvertiseURL.Host))
-	if err != nil {
-		log.Printf("rendering entry script: %v", err)
-		http.Error(w, "failed to render entry script", http.StatusInternalServerError)
-		return
-	}
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
-	_, _ = fmt.Fprint(w, script)
+	_, _ = fmt.Fprint(w, h.Render.ChainIPXEScript)
 }
 
 // serveBoot selects the profile by MAC address and renders the
@@ -104,21 +90,23 @@ func (h *Handler) serveBoot(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 
 	mac := strings.ToLower(r.URL.Query().Get("mac"))
-	profile, ok := h.Profiles[mac]
+	profile, ok := h.Profiles.Profiles[mac]
 	if !ok {
 		w.WriteHeader(http.StatusOK)
-		_, _ = fmt.Fprint(w, render.ExitScript)
+		_, _ = fmt.Fprint(w, h.Render.ExitIPXEScript)
 		return
 	}
 
-	ipxeServe := render.IpxeServe{Kargs: profile.Kargs}
-	if err := h.appendPresignedURLs(r.Context(), profile, &ipxeServe); err != nil {
+	ipxe := &render.BootIPXE{
+		Kargs: profile.Kargs,
+	}
+	if err := h.appendPresignedURLs(r.Context(), profile, ipxe); err != nil {
 		log.Printf("presigning resources for profile: %v", err)
 		http.Error(w, "failed to generate resource URLs", http.StatusInternalServerError)
 		return
 	}
 
-	script, err := render.RenderIPXE(ipxeServe)
+	script, err := h.Render.RenderBootIPXE(ipxe)
 	if err != nil {
 		log.Printf("rendering boot script for profile: %v", err)
 		http.Error(w, "failed to render boot script", http.StatusInternalServerError)
@@ -130,28 +118,28 @@ func (h *Handler) serveBoot(w http.ResponseWriter, r *http.Request) {
 	_, _ = fmt.Fprint(w, script)
 }
 
-func (h *Handler) appendPresignedURLs(ctx context.Context, p *config.Profile, ipxeServe *render.IpxeServe) error {
+func (h *Handler) appendPresignedURLs(ctx context.Context, p *profile.Profile, ipxe *render.BootIPXE) error {
 	var err error
-	ipxeServe.KernelURL, err = h.Presigner.URL(ctx, p.KernelS3Resource)
+	ipxe.KernelURL, err = h.Presigner.URL(ctx, p.Kernel)
 	if err != nil {
 		return err
 	}
-	for _, res := range p.InitrdS3Resources {
+	for _, res := range p.Initrds {
 		u, err := h.Presigner.URL(ctx, res)
 		if err != nil {
 			return err
 		}
-		ipxeServe.InitrdURLs = append(ipxeServe.InitrdURLs, u)
+		ipxe.InitrdURLs = append(ipxe.InitrdURLs, u)
 	}
-	ipxeServe.IgnitionURL, err = h.Presigner.URL(ctx, p.IgnitionS3Resource)
+	ipxe.IgnitionURL, err = h.Presigner.URL(ctx, p.Ignition)
 	if err != nil {
 		return err
 	}
-	ipxeServe.RootfsURL, err = h.Presigner.URL(ctx, p.RootfsS3Resource)
+	ipxe.RootfsURL, err = h.Presigner.URL(ctx, p.Rootfs)
 	if err != nil {
 		return err
 	}
-	return err
+	return nil
 }
 
 // authorize enforces that the verified client certificate's commonName
@@ -159,7 +147,7 @@ func (h *Handler) appendPresignedURLs(ctx context.Context, p *config.Profile, ip
 // if the CN is unknown (including the absence of any peer certificate).
 func (h *Handler) authorize(w http.ResponseWriter, r *http.Request) bool {
 	cn := clientCommonName(r)
-	if _, ok := h.AllowedCNs[cn]; !ok {
+	if _, ok := h.allowedClientCNs[cn]; !ok {
 		log.Printf("rejected client with CN %q: not an allowed iPXE client", cn)
 		http.Error(w, "unauthorized client", http.StatusForbidden)
 		return false

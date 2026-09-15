@@ -10,14 +10,14 @@ import (
 
 // buildTLSConfig assembles a TLS configuration that requires and
 // verifies client certificates signed by the given CA.
-func BuildTLSConfig(certPath, keyPath, caPath string) (*tls.Config, error) {
+func BuildTLSConfig(certPath, keyPath string, caPaths []string) (*tls.Config, error) {
 	cert, err := tls.LoadX509KeyPair(certPath, keyPath)
 	if err != nil {
 		return nil, fmt.Errorf("loading server key pair: %w", err)
 	}
-	pool, err := newCertPool([]string{caPath})
+	pool, err := newCertPool(caPaths)
 	if err != nil {
-		return nil, fmt.Errorf("no valid certificates found in %s", caPath)
+		return nil, fmt.Errorf("no valid certificates found in %v", caPaths)
 	}
 
 	return &tls.Config{
@@ -28,19 +28,15 @@ func BuildTLSConfig(certPath, keyPath, caPath string) (*tls.Config, error) {
 	}, nil
 }
 
-func BuildTLSCAConfig(caPath string) (*tls.Config, error) {
-	cas := []string{}
-	if caPath != "" {
-		cas = append(cas, caPath)
-	}
-	rootCAs, err := newCertPool(cas)
+func BuildTLSCAConfig(caPaths []string) (*tls.Config, error) {
+	pool, err := newCertPool(caPaths)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("no valid certificates found in %v", caPaths)
 	}
 
 	return &tls.Config{
 		MinVersion: tls.VersionTLS13,
-		RootCAs:    rootCAs,
+		RootCAs:    pool,
 	}, nil
 }
 

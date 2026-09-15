@@ -55,16 +55,7 @@ make test       # go test ./...
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `-listen-address` | `0.0.0.0:8443` | Listen address (always TLS) |
-| `-advertise-url` | — | Public base URL iPXE uses to reach this server; used to build the `chain` URL in the entry script (required) |
-| `-client-cns` | — | Comma-separated allowlist of client certificate commonNames (required) |
-| `-s3-endpoint` | — | S3/MinIO endpoint, `host:port` or with `http://`/`https://` prefix (required) |
-| `-s3-region` | `us-east-1` | Region used for SigV4 signing. Set it so presigning never queries the endpoint for the bucket location (MinIO's default region is `us-east-1`) |
-| `-s3-bucket` | — | Bucket holding all boot resources (required) |
-| `-presign-duration` | `60s` | Validity of pre-signed URLs |
 | `-config` | — | Path to the YAML profile config (required) |
-| `-server-cert` / `-server-key` | — | Server certificate/key (required) |
-| `-trusted-ca` | — | CA used to verify client certificates (required) |
 
 Credentials come from `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`
 (any S3-compatible static credentials work; scope the key to read-only on the
@@ -73,42 +64,61 @@ bucket).
 ## Profile config (`-config`)
 
 ```yaml
-global:
-  kernel_s3_resource: "fcos/vmlinuz"
-  initrd_s3_resources:
+listen: "0.0.0.0:8443"
+serverCert: "/path/tls.crt"
+serverKey: "/path/tls.key"
+trustedCAs:
+- "/path/ca.crt"
+allowedClientCNs:
+- "ipxe-node-1"
+s3Endpoint: "https://minio.local:9000"
+s3Bucket: "boot"
+s3TrustedCAs:
+- "/path/minio-ca.crt"
+PresignTTL: "60s"
+
+advertiseURL: "https://ipxe.local:8443"
+bootIPXETemplate: |
+  #!ipxe
+  kernel {{.KernelURL}}{{range .Kargs}} {{.}}{{end}} ignition.config.url={{.IgnitionURL}} coreos.live.rootfs_url={{.RootfsURL}}
+  initrd{{range .InitrdURLs}} {{.}}{{end}}
+  boot
+ChainIPXETemplate: |
+  #!ipxe
+  chain {{.AdvertiseURL}}?mac=${mac:hexhyp}
+ExitIPXEScript: |
+  #!ipxe
+  exit
+
+baseProfile:
+  kernel: "fcos/vmlinuz"
+  initrds:
   - "fcos/initramfs.img"
-  ignition_s3_resource: "ignition/worker.ign"
-  rootfs_s3_resource: "fcos/worker-rootfs.img"
+  ignition: "ignition/worker.ign"
+  rootfs: "fcos/worker-rootfs.img"
   kargs:
   - "ignition.firstboot"
   - "ignition.platform.id=metal"
 
-overlays:
+overlayProfiless:
 - selector:
   - "aa-bb-cc-dd-ee-01"
   - "aa-bb-cc-dd-ee-02"
-  ignition_s3_resource: "ignition/worker-v1.ign"
+  ignition: "ignition/worker-v1.ign"
   kargs:
   - "console=tty0"
-
 - selector:
-  - "aa:bb:cc:dd:ee:02"
+  - "aa-bb-cc-dd-ee-02"
   kargs:
   - "console=ttyS0,115200n8"
 ```
 
-- `profiles` keys are profile names. Every `*_s3_resource` /
-  `*_s3_resources` value is an **object key inside `-s3-bucket`**, not a URL —
-  the server presigns it.
-- `groups` maps MAC addresses to profile names. Group names must be existing
-  profile names; each MAC may appear in exactly one group (enforced at
-  startup, as are missing profile fields).
-- MACs are matched case-insensitively. The canonical `aa:bb:cc:dd:ee:ff`
-  form is expected (it's what iPXE sends as `${mac:hexhyp}`), but dashed,
-  dotted and bare 12-hex-digit forms are accepted in config.
+- `profiles` keys are profile names. Every value is an **object key inside 
+  `-s3-bucket`**, not a URL — the server presigns it.
+- MACs are matched case-insensitively. The canonical `aa-bb-cc-dd-ee-ff`
+  form is expected (it's what iPXE sends as `${mac:hexhyp}`).
 - The presigned ignition and rootfs URLs are appended to the kernel line as
-  `ignition.url=<presigned>` and `rootfs.url=<presigned>`. If your initramfs
-  expects different argument names, edit the template in `render.go`.
+  `ignition.config.url=<presigned>` and `coreos.live.rootfs_url=<presigned>`.
 
 ## Endpoints
 
@@ -141,34 +151,11 @@ podman play kube test/outputs/minio.yaml
 ```
 
 ```bash
-AWS_ACCESS_KEY_ID=minioUser \
-AWS_SECRET_ACCESS_KEY=minioPassword \
-go run main.go \
-  -s3-endpoint https://127.0.0.1:9000 \
-  -s3-bucket ipxe \
-  -config test/config.yaml.sample \
-  -server-cert test/outputs/server/tls.crt \
-  -server-key test/outputs/server/tls.key \
-  -trusted-ca test/outputs/server/ca.crt \
-  -listen-address 0.0.0.0:8080 \
-  -advertise-url https://ipxe.local:8080 \
-  -client-cns ipxe-node
-```
-
-```bash
 podman run -it --rm  \
   -e AWS_ACCESS_KEY_ID=minioUser \
   -e AWS_SECRET_ACCESS_KEY=minioPassword \
   -v $(pwd)/test:/config \
   -p 8080:8080 \
   test \
-  -s3-endpoint https://127.0.0.1:9000 \
-  -s3-bucket ipxe \
-  -config /config/config.yaml.sample \
-  -server-cert /config/outputs/server/tls.crt \
-  -server-key /config/outputs/server/tls.key \
-  -trusted-ca /config/outputs/server/ca.crt \
-  -listen-address 0.0.0.0:8080 \
-  -advertise-url https://ipxe.local:8080 \
-  -client-cns ipxe-node
+  -config /config/config.yaml.sample
 ```
