@@ -11,6 +11,7 @@ import (
 func TestLoadConfig(t *testing.T) {
 	rawYaml := `
   globalProfile:
+    advertiseURL: https://ipxe.local:8443
     bootIPXETemplate: |
       #!ipxe
       kernel {{.Kernel}}{{range .Kargs}} {{.}}{{end}} ignition_url={{.Ignition}} rootfs_url={{.Rootfs}}
@@ -54,6 +55,10 @@ func TestLoadConfig(t *testing.T) {
 
 	expectedConfig := &Config{
 		GlobalProfile: &Profile{
+			AdvertiseURL: "https://ipxe.local:8443",
+			ChainIPXETemplate: `#!ipxe
+chain {{.AdvertiseURL}}?mac=${mac:hexhyp}
+`,
 			BootIPXETemplate: `#!ipxe
 kernel {{.Kernel}}{{range .Kargs}} {{.}}{{end}} ignition_url={{.Ignition}} rootfs_url={{.Rootfs}}
 initrd {{range .Initrds}} {{.}}{{end}}
@@ -73,6 +78,10 @@ boot
 		},
 		Profiles: map[string]*Profile{
 			"aa-bb-cc-dd-ee-01": &Profile{
+				AdvertiseURL: "https://ipxe.local:8443",
+				ChainIPXETemplate: `#!ipxe
+chain {{.AdvertiseURL}}?mac=${mac:hexhyp}
+`,
 				BootIPXETemplate: `#!ipxe
 kernel {{.Kernel}}{{range .Kargs}} {{.}}{{end}} ignition.config.url={{.Ignition}} coreos.live.rootfs_url={{.Rootfs}}
 initrd {{range .Initrds}} {{.}}{{end}}
@@ -93,6 +102,10 @@ boot
 				Selector: nil,
 			},
 			"aa-bb-cc-dd-ee-02": &Profile{
+				AdvertiseURL: "https://ipxe.local:8443",
+				ChainIPXETemplate: `#!ipxe
+chain {{.AdvertiseURL}}?mac=${mac:hexhyp}
+`,
 				BootIPXETemplate: `#!ipxe
 kernel {{.Kernel}}{{range .Kargs}} {{.}}{{end}} ignition_url={{.Ignition}} rootfs_url={{.Rootfs}}
 initrd {{range .Initrds}} {{.}}{{end}}
