@@ -11,27 +11,26 @@ that isn't needed here cut out.
 
    ```
    #!ipxe
-   chain https://ipxe.internal:8443/pxe?mac:hexhyp=${mac:hexhyp}&uuid=${uuid}
+   chain ipxe?mac:hexhyp=${mac:hexhyp}&buildarch:uristring=${buildarch:uristring}&uuid=${uuid}
    ```
 
    iPXE substitutes `${mac:hexhyp}` / `${uuid}` at parse time and chains to
    `/ipxe` with the node's MAC address.
 
-2. The **`/ipxe`** endpoint looks the MAC up in the `groups:` config section,
-   resolves it to a boot profile, and renders the boot script with
-   **short-lived pre-signed S3 (MinIO) URLs** for kernel, initrd, ignition
-   and rootfs:
+2. The **`/ipxe`** endpoint matches boot profiles by iPXE parameters as selectors
+   (e.g. mac:hexhyp: aa-bb-cc-dd-ee-01). An iPXE boot script is rendered including 
+   pre-signed S3 (MinIO) URLs where specified:
 
    ```
    #!ipxe
-   kernel https://minio.internal:9000/boot-assets/fcos/vmlinuz?X-Amz-... console=tty0 ... ignition.url=https://minio.internal:9000/boot-assets/ignition/worker.ign?X-Amz-... rootfs.url=https://minio.internal:9000/boot-assets/fcos/worker-rootfs.img?X-Amz-...
+   kernel https://minio.internal:9000/boot-assets/fcos/vmlinuz?X-Amz-... console=tty0 ... ignition.config.url=https://minio.internal:9000/boot-assets/ignition/worker.ign?X-Amz-... coreos.live.rootfs_url=https://minio.internal:9000/boot-assets/fcos/worker-rootfs.img?X-Amz-...
    initrd https://minio.internal:9000/boot-assets/fcos/initramfs.img?X-Amz-...
    boot
    ```
 
    Nodes never need long-term credentials — only the (expiring) signed URLs.
 
-3. A MAC that matches no group gets:
+3. No matches by selector:
 
    ```
    #!ipxe
@@ -47,8 +46,8 @@ purely by MAC address.
 ## Build
 
 ```
-make            # or: go build -o ipxe-presign .
-make test       # go test ./...
+make      # or: go build -o ipxe-presign .
+make test # go test ./...
 ```
 
 ## Run
@@ -99,12 +98,13 @@ profiles:
   - ignition.firstboot
 ```
 
-- `profiles` keys are profile names. Every value is an **object key inside 
-  `-s3-bucket`**, not a URL — the server presigns it.
-- MACs are matched case-insensitively. The canonical `aa-bb-cc-dd-ee-ff`
-  form is expected (it's what iPXE sends as `${mac:hexhyp}`).
-- The presigned ignition and rootfs URLs are appended to the kernel line as
-  `ignition.config.url=<presigned>` and `coreos.live.rootfs_url=<presigned>`.
+- iPXE variables such as `${buildarch:uristring}` are rendered with params
+  returned from iPXE.
+- A S3 (MinIO) object may be pre-signed by including an entry like
+  `{{ presign "fcos/initramfs-${buildarch:uristring}.img" }}`. The object
+  name is first resolved by param such as `fcos/initramfs-aa-bb-cc-dd-ee-01.img`,
+  and converted to a pre-signed URL of a S3 object at
+  `<s3Endpoint>/<s3Bucket>/fcos/initramfs-aa-bb-cc-dd-ee-01.img`.
 
 ## Endpoints
 
@@ -112,7 +112,6 @@ profiles:
 |------|---------|
 | `GET /boot.ipxe` | First-stage entry script (static template + advertise URL) |
 | `GET /ipxe?mac=...` | Second-stage boot script, profile selected by MAC |
-| `GET /healthz` | Liveness probe (still behind mTLS) |
 
 ## MinIO instance for testing
 
