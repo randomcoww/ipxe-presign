@@ -45,14 +45,14 @@ func testConfig() *config.Profiles {
 						"aa-bb-cc-dd-ee-02",
 					},
 				},
-				KernelURL: `{{ presign "fcos/vmlinuz-${buildarch:uristring}" }}`,
+				KernelURL: "{{ presign `fcos/vmlinuz-${buildarch:uristring}` }}",
 				InitrdURLs: []string{
-					`{{ presign "fcos/initramfs-${buildarch:uristring}.img" }}`,
+					"{{ presign `fcos/initramfs-${buildarch:uristring}.img` }}",
 				},
 				Kargs: []string{
 					"console=tty0",
-					`ignition.config.url={{ presign "ignition/worker-${mac:hexhyp}.ign" }}`,
-					`coreos.live.rootfs_url={{ presign "fcos/rootfs-${buildarch:uristring}.img" }}`,
+					"ignition.config.url={{ presign `ignition/worker-${mac:hexhyp}.ign` }}",
+					"coreos.live.rootfs_url={{ presign `fcos/rootfs-${buildarch:uristring}.img` }}",
 					"ignition.firstboot",
 				},
 			},
@@ -70,7 +70,7 @@ func TestClientCommonName(t *testing.T) {
 }
 
 func TestEntryAuthorizedAndRenders(t *testing.T) {
-	h, err := NewHandler("https://ipxe.internal:8443", []string{"ipxe-node-1"}, testConfig(), &fakePresigner{})
+	h, err := NewHandler([]string{"ipxe-node-1"}, testConfig(), &fakePresigner{})
 	if err != nil {
 		t.Fatalf("Create handler: %v", err)
 	}
@@ -78,13 +78,13 @@ func TestEntryAuthorizedAndRenders(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, rec.Code)
 	assert.Equal(t, `#!ipxe
-chain https://ipxe.internal:8443/ipxe?mac:hexhyp=${mac:hexhyp}&buildarch:uristring=${buildarch:uristring}&uuid=${uuid}
+chain ipxe?mac:hexhyp=${mac:hexhyp}&buildarch:uristring=${buildarch:uristring}&uuid=${uuid}
 `, rec.Body.String())
 }
 
 func TestBootMatchedMAC(t *testing.T) {
 	presigner := &fakePresigner{}
-	h, err := NewHandler("https://ipxe.internal:8443", []string{"ipxe-node-1"}, testConfig(), presigner)
+	h, err := NewHandler([]string{"ipxe-node-1"}, testConfig(), presigner)
 	if err != nil {
 		t.Fatalf("Create handler: %v", err)
 	}
@@ -106,7 +106,7 @@ boot
 }
 
 func TestBootUnknownMACExits(t *testing.T) {
-	h, err := NewHandler("https://ipxe.internal:8443", []string{"ipxe-node-1"}, testConfig(), &fakePresigner{})
+	h, err := NewHandler([]string{"ipxe-node-1"}, testConfig(), &fakePresigner{})
 	if err != nil {
 		t.Fatalf("Create handler: %v", err)
 	}
@@ -121,7 +121,7 @@ exit
 }
 
 func TestRejectedCN(t *testing.T) {
-	h, err := NewHandler("https://ipxe.internal:8443", []string{"ipxe-node-1"}, testConfig(), &fakePresigner{})
+	h, err := NewHandler([]string{"ipxe-node-1"}, testConfig(), &fakePresigner{})
 	if err != nil {
 		t.Fatalf("Create handler: %v", err)
 	}
@@ -133,7 +133,7 @@ func TestRejectedCN(t *testing.T) {
 }
 
 func TestBootPresignFailure(t *testing.T) {
-	h, err := NewHandler("https://ipxe.internal:8443", []string{"ipxe-node-1"}, testConfig(), &fakePresigner{fail: context.DeadlineExceeded})
+	h, err := NewHandler([]string{"ipxe-node-1"}, testConfig(), &fakePresigner{fail: context.DeadlineExceeded})
 	if err != nil {
 		t.Fatalf("Create handler: %v", err)
 	}
@@ -143,7 +143,7 @@ func TestBootPresignFailure(t *testing.T) {
 }
 
 func TestHealthz(t *testing.T) {
-	h, err := NewHandler("https://ipxe.internal:8443", []string{"ipxe-node-1"}, testConfig(), &fakePresigner{})
+	h, err := NewHandler([]string{"ipxe-node-1"}, testConfig(), &fakePresigner{})
 	if err != nil {
 		t.Fatalf("Create handler: %v", err)
 	}

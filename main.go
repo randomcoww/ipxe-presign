@@ -63,7 +63,7 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("new presigner: %v", err)
 	}
-	handler, err := h.NewHandler(cfg.AdvertiseURL, cfg.AllowedClientCNs, c.NewProfileConfig(cfg), presigner)
+	handler, err := h.NewHandler(cfg.AllowedClientCNs, c.NewProfileConfig(cfg), presigner)
 	if err != nil {
 		return fmt.Errorf("new HTTP handler: %v", err)
 	}

@@ -4,7 +4,6 @@ import (
 	"crypto/tls"
 	"fmt"
 	"net/netip"
-	"net/url"
 	"os"
 	"time"
 
@@ -23,7 +22,6 @@ type YamlConfig struct {
 	S3Region         string        `yaml:"s3Region,omitempty"`
 	S3TrustedCAs     []string      `yaml:"s3TrustedCAs,omitempty"`
 	PresignTTL       time.Duration `yaml:"presignTTL,omitempty"`
-	AdvertiseURL     string        `yaml:"advertiseURL"`
 	Profiles         []*Profile    `yaml:"profiles"`
 	ServerTLSConfig  *tls.Config
 }
@@ -71,17 +69,6 @@ func LoadConfig(path string) (*YamlConfig, error) {
 	if err != nil {
 		return nil, fmt.Errorf("building server TLS config: %w", err)
 	}
-
-	// --- advertise ---
-
-	u, err := url.Parse(raw.AdvertiseURL)
-	if err != nil {
-		return nil, fmt.Errorf("parse advertise url: %w", err)
-	}
-	if u.Scheme != "https" {
-		return nil, fmt.Errorf("advertise URL scheme must be HTTPS")
-	}
-	raw.AdvertiseURL = fmt.Sprintf("%s://%s", u.Scheme, u.Host)
 
 	return raw, nil
 }
