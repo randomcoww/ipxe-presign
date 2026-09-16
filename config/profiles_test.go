@@ -8,43 +8,51 @@ import (
 
 func TestProfileConfig(t *testing.T) {
 	yamlConfig := &YamlConfig{
-		BaseProfile: &Profile{
-			KernelResource: "fcos/vmlinuz",
-			InitrdResources: []string{
-				"fcos/initramfs.img",
-			},
-			IgnitionResource: "ignition/worker.ign",
-			RootfsResource:   "fcos/worker.img",
-			Kargs: []string{
-				"ignition.firstboot",
-				"ignition.platform.id=metal",
-			},
-		},
-		OverlayProfiles: []*Profile{
+		Profiles: []*Profile{
 			{
-				Selector: []string{
-					"aa-bb-cc-dd-ee-01",
-					"aa-bb-cc-dd-ee-02",
+				Selector: map[string][]string{
+					"mac:hexhyp": []string{
+						"aa-bb-cc-dd-ee-01",
+						"aa-bb-cc-dd-ee-02",
+					},
+					"buildarch:uristring": []string{
+						"x86_64",
+					},
 				},
-				IgnitionResource: "ignition/worker-v1.ign",
 				Kargs: []string{
 					"console=tty0",
 				},
 			},
 			{
-				Selector: []string{
-					"aa-bb-cc-dd-ee-01",
+				Selector: map[string][]string{
+					"mac:hexhyp": []string{
+						"aa-bb-cc-dd-ee-01",
+					},
 				},
-				IgnitionResource: "ignition/worker-v2.ign",
 				Kargs: []string{
 					"console=ttyS0,115200n8",
 				},
 			},
 			{
-				Selector: []string{
-					"aa-bb-cc-dd-ee-02",
+				Selector: map[string][]string{
+					"mac:hexhyp": []string{
+						"aa-bb-cc-dd-ee-01",
+					},
+					"buildarch:uristring": []string{
+						"x86_64",
+					},
 				},
-				InitrdResources: []string{
+				Kargs: []string{
+					"console=ttyS0",
+				},
+			},
+			{
+				Selector: map[string][]string{
+					"mac:hexhyp": []string{
+						"aa-bb-cc-dd-ee-02",
+					},
+				},
+				InitrdURLs: []string{
 					"fcos/initramfs-2.img",
 				},
 				Kargs: []string{
@@ -54,55 +62,125 @@ func TestProfileConfig(t *testing.T) {
 		},
 	}
 
-	expectedProfiles := &Profiles{
-		BaseProfile: &Profile{
-			KernelResource: "fcos/vmlinuz",
-			InitrdResources: []string{
-				"fcos/initramfs.img",
+	expectedSelectorMap := map[string]map[string][]*Profile{
+		"mac:hexhyp": map[string][]*Profile{
+			"aa-bb-cc-dd-ee-01": []*Profile{
+				{
+					Selector: map[string][]string{
+						"mac:hexhyp": []string{
+							"aa-bb-cc-dd-ee-01",
+							"aa-bb-cc-dd-ee-02",
+						},
+						"buildarch:uristring": []string{
+							"x86_64",
+						},
+					},
+					Kargs: []string{
+						"console=tty0",
+					},
+				},
+				{
+					Selector: map[string][]string{
+						"mac:hexhyp": []string{
+							"aa-bb-cc-dd-ee-01",
+						},
+					},
+					Kargs: []string{
+						"console=ttyS0,115200n8",
+					},
+				},
+				{
+					Selector: map[string][]string{
+						"mac:hexhyp": []string{
+							"aa-bb-cc-dd-ee-01",
+						},
+						"buildarch:uristring": []string{
+							"x86_64",
+						},
+					},
+					Kargs: []string{
+						"console=ttyS0",
+					},
+				},
 			},
-			IgnitionResource: "ignition/worker.ign",
-			RootfsResource:   "fcos/worker.img",
-			Kargs: []string{
-				"ignition.firstboot",
-				"ignition.platform.id=metal",
+			"aa-bb-cc-dd-ee-02": []*Profile{
+				{
+					Selector: map[string][]string{
+						"mac:hexhyp": []string{
+							"aa-bb-cc-dd-ee-01",
+							"aa-bb-cc-dd-ee-02",
+						},
+						"buildarch:uristring": []string{
+							"x86_64",
+						},
+					},
+					Kargs: []string{
+						"console=tty0",
+					},
+				},
+				{
+					Selector: map[string][]string{
+						"mac:hexhyp": []string{
+							"aa-bb-cc-dd-ee-02",
+						},
+					},
+					InitrdURLs: []string{
+						"fcos/initramfs-2.img",
+					},
+					Kargs: []string{
+						"console=tty0",
+					},
+				},
 			},
-			Selector: nil,
 		},
-		Profiles: map[string]*Profile{
-			"aa-bb-cc-dd-ee-01": &Profile{
-				KernelResource: "fcos/vmlinuz",
-				InitrdResources: []string{
-					"fcos/initramfs.img",
+		"buildarch:uristring": map[string][]*Profile{
+			"x86_64": []*Profile{
+				{
+					Selector: map[string][]string{
+						"mac:hexhyp": []string{
+							"aa-bb-cc-dd-ee-01",
+							"aa-bb-cc-dd-ee-02",
+						},
+						"buildarch:uristring": []string{
+							"x86_64",
+						},
+					},
+					Kargs: []string{
+						"console=tty0",
+					},
 				},
-				IgnitionResource: "ignition/worker-v2.ign",
-				RootfsResource:   "fcos/worker.img",
-				Kargs: []string{
-					"console=tty0",
-					"console=ttyS0,115200n8",
-					"ignition.firstboot",
-					"ignition.platform.id=metal",
+				{
+					Selector: map[string][]string{
+						"mac:hexhyp": []string{
+							"aa-bb-cc-dd-ee-01",
+						},
+						"buildarch:uristring": []string{
+							"x86_64",
+						},
+					},
+					Kargs: []string{
+						"console=ttyS0",
+					},
 				},
-				Selector: nil,
 			},
-			"aa-bb-cc-dd-ee-02": &Profile{
-				KernelResource: "fcos/vmlinuz",
-				InitrdResources: []string{
-					"fcos/initramfs.img",
-					"fcos/initramfs-2.img",
-				},
-				IgnitionResource: "ignition/worker-v1.ign",
-				RootfsResource:   "fcos/worker.img",
-				Kargs: []string{
-					"console=tty0",
-					"ignition.firstboot",
-					"ignition.platform.id=metal",
-				},
-				Selector: nil,
-			},
+		},
+	}
+
+	expectedMergedProfile := &Profile{
+		Selector: nil,
+		Kargs: []string{
+			"console=tty0",
+			"console=ttyS0",
 		},
 	}
 
 	profiles, err := NewProfileConfig(yamlConfig)
 	assert.NoError(t, err)
-	assert.Equal(t, expectedProfiles, profiles)
+	assert.Equal(t, expectedSelectorMap, profiles.selectorMap)
+
+	mergeddProfiles := profiles.GetMerged(map[string]string{
+		"mac:hexhyp":          "aa-bb-cc-dd-ee-01",
+		"buildarch:uristring": "x86_64",
+	})
+	assert.Equal(t, expectedMergedProfile, mergeddProfiles)
 }
