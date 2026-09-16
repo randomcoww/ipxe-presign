@@ -1,47 +1,33 @@
-listen: "0.0.0.0:8443"
-serverCert: "/config/outputs/server/tls.crt"
-serverKey: "/config/outputs/server/tls.key"
+listen: 0.0.0.0:8443
+serverCert: /config/outputs/server/tls.crt
+serverKey: /config/outputs/server/tls.key
 trustedCAs:
-- "/config/outputs/server/ca.crt"
+- /config/outputs/server/ca.crt
 allowedClientCNs:
-- "ipxe-node-1"
-s3Endpoint: "https://127.0.0.1:9000"
-s3Bucket: "boot"
+- ipxe-node-1
+s3Endpoint: https://127.0.0.1:9000
+s3Bucket: boot
 s3TrustedCAs:
-- "/config/outputs/minio/certs/CAs/ca.crt"
-PresignTTL: "60s"
+- /config/outputs/minio/certs/CAs/ca.crt
+PresignTTL: 60s
+advertiseURL: https://ipxe.local:8443
 
-advertiseURL: "https://ipxe.local:8443"
-bootIPXETemplate: |
-  #!ipxe
-  kernel {{.KernelURL}}{{range .Kargs}} {{.}}{{end}} ignition.config.url={{.IgnitionURL}} coreos.live.rootfs_url={{.RootfsURL}}
-  initrd{{range .InitrdURLs}} {{.}}{{end}}
-  boot
-chainIPXETemplate: |
-  #!ipxe
-  chain {{.AdvertiseURL}}?mac=${mac:hexhyp}
-exitIPXEScript: |
-  #!ipxe
-  exit
-
-baseProfile:
-  kernelResource: "fcos/vmlinuz"
-  initrdResources:
-  - "fcos/initramfs.img"
-  ignitionResource: "ignition/worker.ign"
-  rootfsResource: "fcos/worker-rootfs.img"
-  kargs:
-  - "ignition.firstboot"
-  - "ignition.platform.id=metal"
-
-overlayProfiless:
+profiles:
 - selector:
-  - "aa-bb-cc-dd-ee-01"
-  - "aa-bb-cc-dd-ee-02"
-  ignitionResource: "ignition/worker-v1.ign"
+    "mac:hexhyp":
+    - aa-bb-cc-dd-ee-01
+    - aa-bb-cc-dd-ee-02
+    "buildarch:uristring":
+    - x86_64
+  kernelURL: {{ presign "fcos/vmlinuz-${buildarch:uristring}" }}
+  initrdURLs:
+  - {{ presign "fcos/initramfs-${buildarch:uristring}.img" }}
   kargs:
-  - "console=tty0"
+  - console=tty0
+  - ignition.config.url={{ presign "ignition/worker-${mac:hexhyp}.ign" }}
+  - coreos.live.rootfs_url={{ presign "fcos/rootfs-${buildarch:uristring}.img" }}
 - selector:
-  - "aa-bb-cc-dd-ee-02"
+    "mac:hexhyp":
+    - aa-bb-cc-dd-ee-02
   kargs:
-  - "console=ttyS0,115200n8"
+  - ignition.firstboot

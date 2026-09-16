@@ -11,7 +11,7 @@ that isn't needed here cut out.
 
    ```
    #!ipxe
-   chain https://ipxe.internal:8443/pxe?mac=${mac:hexhyp}&uuid=${uuid}
+   chain https://ipxe.internal:8443/pxe?mac:hexhyp=${mac:hexhyp}&uuid=${uuid}
    ```
 
    iPXE substitutes `${mac:hexhyp}` / `${uuid}` at parse time and chains to
@@ -64,53 +64,39 @@ bucket).
 ## Profile config (`-config`)
 
 ```yaml
-listen: "0.0.0.0:8443"
-serverCert: "/path/tls.crt"
-serverKey: "/path/tls.key"
+listen: 0.0.0.0:8443
+serverCert: /config/outputs/server/tls.crt
+serverKey: /config/outputs/server/tls.key
 trustedCAs:
-- "/path/ca.crt"
+- /config/outputs/server/ca.crt
 allowedClientCNs:
-- "ipxe-node-1"
-s3Endpoint: "https://minio.local:9000"
-s3Bucket: "boot"
+- ipxe-node-1
+s3Endpoint: https://127.0.0.1:9000
+s3Bucket: boot
 s3TrustedCAs:
-- "/path/minio-ca.crt"
-PresignTTL: "60s"
+- /config/outputs/minio/certs/CAs/ca.crt
+PresignTTL: 60s
+advertiseURL: https://ipxe.local:8443
 
-advertiseURL: "https://ipxe.local:8443"
-bootIPXETemplate: |
-  #!ipxe
-  kernel {{.KernelURL}}{{range .Kargs}} {{.}}{{end}} ignition.config.url={{.IgnitionURL}} coreos.live.rootfs_url={{.RootfsURL}}
-  initrd{{range .InitrdURLs}} {{.}}{{end}}
-  boot
-chainIPXETemplate: |
-  #!ipxe
-  chain {{.AdvertiseURL}}?mac=${mac:hexhyp}
-exitIPXEScript: |
-  #!ipxe
-  exit
-
-baseProfile:
-  kernel: "fcos/vmlinuz"
-  initrds:
-  - "fcos/initramfs.img"
-  ignition: "ignition/worker.ign"
-  rootfs: "fcos/worker-rootfs.img"
-  kargs:
-  - "ignition.firstboot"
-  - "ignition.platform.id=metal"
-
-overlayProfiless:
+profiles:
 - selector:
-  - "aa-bb-cc-dd-ee-01"
-  - "aa-bb-cc-dd-ee-02"
-  ignition: "ignition/worker-v1.ign"
+    "mac:hexhyp":
+    - aa-bb-cc-dd-ee-01
+    - aa-bb-cc-dd-ee-02
+    "buildarch:uristring":
+    - x86_64
+  kernelURL: '{{ presign "fcos/vmlinuz-${buildarch:uristring}" }}'
+  initrdURLs:
+  - '{{ presign "fcos/initramfs-${buildarch:uristring}.img" }}'
   kargs:
-  - "console=tty0"
+  - console=tty0
+  - 'ignition.config.url={{ presign "ignition/worker-${mac:hexhyp}.ign" }}'
+  - 'coreos.live.rootfs_url={{ presign "fcos/rootfs-${buildarch:uristring}.img" }}'
 - selector:
-  - "aa-bb-cc-dd-ee-02"
+    "mac:hexhyp":
+    - aa-bb-cc-dd-ee-02
   kargs:
-  - "console=ttyS0,115200n8"
+  - ignition.firstboot
 ```
 
 - `profiles` keys are profile names. Every value is an **object key inside 
