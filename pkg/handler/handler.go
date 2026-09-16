@@ -1,15 +1,16 @@
 package handler
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
 	"strings"
+	"text/template"
 
 	"github.com/randomcoww/ipxe-presign/config"
-	"github.com/randomcoww/ipxe-presign/pkg/render"
 )
 
 // urlPresigner issues short-lived URLs for S3 objects. *Presigner
@@ -28,7 +29,7 @@ type URLPresigner interface {
 // configured CA (enforced at the TLS layer) whose commonName is in the
 // allowlist (enforced here). Profile selection is by MAC address only.
 type Handler struct {
-	Render           *render.Render
+	advertiseURL     string
 	Profiles         *config.Profiles
 	Presigner        URLPresigner
 	allowedClientCNs map[string]struct{}
@@ -36,9 +37,9 @@ type Handler struct {
 
 // NewHandler builds a Handler. advertiseURL is the public base URL
 // (scheme + host[:port]) that iPXE uses to reach this server.
-func NewHandler(r *render.Render, allowedClientCNs []string, p *config.Profiles, pr URLPresigner) (*Handler, error) {
+func NewHandler(advertiseURL string, allowedClientCNs []string, p *config.Profiles, pr URLPresigner) (*Handler, error) {
 	h := &Handler{
-		Render:           r,
+		advertiseURL:     advertiseURL,
 		Profiles:         p,
 		Presigner:        pr,
 		allowedClientCNs: make(map[string]struct{}, len(allowedClientCNs)),
@@ -75,7 +76,13 @@ func (h *Handler) serveChain(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
-	_, _ = fmt.Fprint(w, h.Render.ChainIPXEScript)
+
+	// First-stage script. iPXE substitutes ${mac:hexhyp}
+	// and ${uuid} at parse time, then chains to the second-stage URL with
+	// the node's MAC address — which is what selects the boot profile.
+	_, _ = fmt.Fprint(w, fmt.Sprintf(`#!ipxe
+chain %s/ipxe?mac:hexhyp=${mac:hexhyp}&buildarch:uristring=${buildarch:uristring}&uuid=${uuid}
+`, h.advertiseURL))
 }
 
 // serveBoot selects the profile by MAC address and renders the
@@ -90,67 +97,92 @@ func (h *Handler) serveBoot(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 
-	mac := strings.ToLower(r.URL.Query().Get("mac:hexhyp"))
-	profile, ok := h.Profiles.Profiles[mac]
-	if !ok {
-		w.WriteHeader(http.StatusOK)
-		_, _ = fmt.Fprint(w, h.Render.ExitIPXEScript)
-		return
-	}
-
 	queryKV := make(map[string]string)
 	for k, v := range r.URL.Query() {
 		queryKV[k] = v[len(v)-1]
 	}
 
-	ipxe := &render.BootIPXE{
-		Kargs: profile.Kargs,
+	profile, ok := h.Profiles.GetMerged(queryKV)
+	if !ok {
+		w.WriteHeader(http.StatusOK)
+		_, _ = fmt.Fprint(w, `#!ipxe
+exit
+`)
+		return
 	}
-	if err := h.appendPresignedURLs(r.Context(), profile, ipxe, queryKV); err != nil {
+
+	script, err := h.renderIPXEBoot(r.Context(), profile, queryKV)
+	if err != nil {
 		log.Printf("presigning resources for profile: %v", err)
 		http.Error(w, "failed to generate resource URLs", http.StatusInternalServerError)
 		return
 	}
 
-	script, err := h.Render.RenderBootIPXE(ipxe)
-	if err != nil {
-		log.Printf("rendering boot script for profile: %v", err)
-		http.Error(w, "failed to render boot script", http.StatusInternalServerError)
-		return
-	}
-
-	log.Printf("served boot script for profile (MAC %s)", mac)
+	log.Printf("served boot script for profile (Selector %v)", queryKV)
 	w.WriteHeader(http.StatusOK)
 	_, _ = fmt.Fprint(w, script)
 }
 
-func (h *Handler) appendPresignedURLs(ctx context.Context, p *config.Profile, ipxe *render.BootIPXE, queryKV map[string]string) error {
+func (h *Handler) renderIPXEBoot(ctx context.Context, p *config.Profile, queryKV map[string]string) (string, error) {
 	var err error
 	for k, v := range queryKV {
 		os.Setenv(k, v)
 		defer os.Unsetenv(k)
 	}
 
-	ipxe.KernelURL, err = h.Presigner.URL(ctx, os.ExpandEnv(p.KernelResource))
+	tmpl := template.New("presigner").Funcs(template.FuncMap{
+		"presign": func(resource string) (string, error) {
+			url, err := h.Presigner.URL(ctx, resource)
+			if err != nil {
+				return "", fmt.Errorf("presign URL: %w", err)
+			}
+			return url, nil
+		},
+	})
+
+	kernelURL, err := h.renderParam(tmpl, os.ExpandEnv(p.KernelURL))
 	if err != nil {
-		return err
+		return "", fmt.Errorf("parse kernel URL: %w", err)
 	}
-	for _, res := range p.InitrdResources {
-		u, err := h.Presigner.URL(ctx, os.ExpandEnv(res))
+	kargs := []string{}
+	for _, karg := range p.Kargs {
+		k, err := h.renderParam(tmpl, os.ExpandEnv(karg))
 		if err != nil {
-			return err
+			return "", fmt.Errorf("parse karg: %w", err)
 		}
-		ipxe.InitrdURLs = append(ipxe.InitrdURLs, u)
+		kargs = append(kargs, k)
 	}
-	ipxe.IgnitionURL, err = h.Presigner.URL(ctx, os.ExpandEnv(p.IgnitionResource))
+	initrdURLs := []string{}
+	for _, initrdURL := range p.InitrdURLs {
+		i, err := h.renderParam(tmpl, os.ExpandEnv(initrdURL))
+		if err != nil {
+			return "", fmt.Errorf("parse initrd URL: %w", err)
+		}
+		initrdURLs = append(initrdURLs, i)
+	}
+
+	// Second-stage boot script. The presigned kernel,
+	// initrd, ignition and rootfs URLs are substituted in; ignition and
+	// rootfs are passed as kernel arguments.
+	ipxe := fmt.Sprintf(`#!ipxe
+kernel %s %s
+initrd %s
+boot
+`, kernelURL, strings.Join(kargs, " "), strings.Join(initrdURLs, " "))
+
+	return ipxe, nil
+}
+
+func (h *Handler) renderParam(tmpl *template.Template, param string) (string, error) {
+	t, err := tmpl.Parse(param)
 	if err != nil {
-		return err
+		return "", fmt.Errorf("parse %s: %w", param, err)
 	}
-	ipxe.RootfsURL, err = h.Presigner.URL(ctx, os.ExpandEnv(p.RootfsResource))
-	if err != nil {
-		return err
+	b := bytes.Buffer{}
+	if err := t.Execute(&b, struct{}{}); err != nil {
+		return "", fmt.Errorf("render %s: %w", param, err)
 	}
-	return nil
+	return b.String(), nil
 }
 
 // authorize enforces that the verified client certificate's commonName

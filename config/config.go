@@ -4,6 +4,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"net/netip"
+	"net/url"
 	"os"
 	"time"
 
@@ -22,14 +23,9 @@ type YamlConfig struct {
 	S3Region         string        `yaml:"s3Region,omitempty"`
 	S3TrustedCAs     []string      `yaml:"s3TrustedCAs,omitempty"`
 	PresignTTL       time.Duration `yaml:"presignTTL,omitempty"`
-
-	AdvertiseURL      string `yaml:"advertiseURL"`
-	BootIPXETemplate  string `yaml:"bootIPXETemplate,omitempty"`
-	ChainIPXETemplate string `yaml:"chainIPXETemplate,omitempty"`
-	ExitIPXEScript    string `yaml:"exitIPXETemplate,omitempty"`
-
-	Profiles        []*Profile `yaml:"profiles"`
-	ServerTLSConfig *tls.Config
+	AdvertiseURL     string        `yaml:"advertiseURL"`
+	Profiles         []*Profile    `yaml:"profiles"`
+	ServerTLSConfig  *tls.Config
 }
 
 // Profile describes how a node boots. Every resource is an object key
@@ -52,24 +48,6 @@ func LoadConfig(path string) (*YamlConfig, error) {
 		S3Endpoint: "https://s3.amazonaws.com",
 		S3Region:   "us-east-1",
 		PresignTTL: 60 * time.Second,
-
-		// First-stage script. iPXE substitutes ${mac:hexhyp}
-		// and ${uuid} at parse time, then chains to the second-stage URL with
-		// the node's MAC address — which is what selects the boot profile.
-		ChainIPXETemplate: `#!ipxe
-chain {{.AdvertiseURL}}?mac:hexhyp=${mac:hexhyp}&buildarch:uristring=${buildarch:uristring}
-`,
-		// Second-stage boot script. The presigned kernel,
-		// initrd, ignition and rootfs URLs are substituted in; ignition and
-		// rootfs are passed as kernel arguments.
-		BootIPXETemplate: `#!ipxe
-kernel {{.KernelURL}}{{range .Kargs}} {{.}}{{end}} ignition.config.url={{.IgnitionURL}} coreos.live.rootfs_url={{.RootfsURL}}
-initrd{{range .InitrdURLs}} {{.}}{{end}}
-boot
-`,
-		ExitIPXEScript: `#!ipxe
-exit
-`,
 	}
 	if err := yaml.Unmarshal(data, &raw); err != nil {
 		return nil, fmt.Errorf("parsing config: %w", err)
@@ -93,6 +71,17 @@ exit
 	if err != nil {
 		return nil, fmt.Errorf("building server TLS config: %w", err)
 	}
+
+	// --- advertise ---
+
+	u, err := url.Parse(raw.AdvertiseURL)
+	if err != nil {
+		return nil, fmt.Errorf("parse advertise url: %w", err)
+	}
+	if u.Scheme != "https" {
+		return nil, fmt.Errorf("advertise URL scheme must be HTTPS")
+	}
+	raw.AdvertiseURL = fmt.Sprintf("%s://%s", u.Scheme, u.Host)
 
 	return raw, nil
 }

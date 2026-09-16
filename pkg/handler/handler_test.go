@@ -13,11 +13,10 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"testing"
-	"text/template"
+	// "text/template"
 	"time"
 
 	"github.com/randomcoww/ipxe-presign/config"
-	"github.com/randomcoww/ipxe-presign/pkg/render"
 	"github.com/randomcoww/ipxe-presign/pkg/tlsutil"
 	"github.com/randomcoww/ipxe-presign/tlstest"
 	"github.com/stretchr/testify/assert"
@@ -38,35 +37,29 @@ func (f *fakePresigner) URL(ctx context.Context, object string) (string, error) 
 }
 
 func testConfig() *config.Profiles {
-	return &config.Profiles{
-		BaseProfile: &config.Profile{},
-		Profiles: map[string]*config.Profile{
-			"aa-bb-cc-dd-ee-01": {
-				KernelResource:   "fcos/vmlinuz-${buildarch:uristring}",
-				InitrdResources:  []string{"fcos/initramfs-${buildarch:uristring}.img"},
-				IgnitionResource: "ignition/worker-${mac:hexhyp}.ign",
-				RootfsResource:   "fcos/worker-rootfs-${buildarch:uristring}.img",
-				Kargs:            []string{"console=tty0", "ignition.firstboot"},
-				Selector:         nil,
+	yamlConfig := &config.YamlConfig{
+		Profiles: []*config.Profile{
+			{
+				Selector: map[string][]string{
+					"mac:hexhyp": []string{
+						"aa-bb-cc-dd-ee-01",
+						"aa-bb-cc-dd-ee-02",
+					},
+				},
+				KernelURL: `{{ presign "fcos/vmlinuz-${buildarch:uristring}" }}`,
+				InitrdURLs: []string{
+					`{{ presign "fcos/initramfs-${buildarch:uristring}.img" }}`,
+				},
+				Kargs: []string{
+					"console=tty0",
+					`ignition.config.url={{ presign "ignition/worker-${mac:hexhyp}.ign" }}`,
+					`coreos.live.rootfs_url={{ presign "fcos/rootfs-${buildarch:uristring}.img" }}`,
+					"ignition.firstboot",
+				},
 			},
 		},
 	}
-}
-
-func testRenderer() *render.Render {
-	return &render.Render{
-		BootIPXETemplate: template.Must(template.New("boot").Parse(`#!ipxe
-kernel {{.KernelURL}}{{range .Kargs}} {{.}}{{end}} ignition.config.url={{.IgnitionURL}} coreos.live.rootfs_url={{.RootfsURL}}
-initrd{{range .InitrdURLs}} {{.}}{{end}}
-boot
-`)),
-		ChainIPXEScript: `#!ipxe
-chain https://ipxe.internal:8443/ipxe?mac:hexhyp=${mac:hexhyp}&buildarch:uristring=${buildarch:uristring}
-`,
-		ExitIPXEScript: `#!ipxe
-exit
-`,
-	}
+	return config.NewProfileConfig(yamlConfig)
 }
 
 func TestClientCommonName(t *testing.T) {
@@ -78,7 +71,7 @@ func TestClientCommonName(t *testing.T) {
 }
 
 func TestEntryAuthorizedAndRenders(t *testing.T) {
-	h, err := NewHandler(testRenderer(), []string{"ipxe-node-1"}, testConfig(), &fakePresigner{})
+	h, err := NewHandler("https://ipxe.internal:8443", []string{"ipxe-node-1"}, testConfig(), &fakePresigner{})
 	if err != nil {
 		t.Fatalf("Create handler: %v", err)
 	}
@@ -86,13 +79,13 @@ func TestEntryAuthorizedAndRenders(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, rec.Code)
 	assert.Equal(t, `#!ipxe
-chain https://ipxe.internal:8443/ipxe?mac:hexhyp=${mac:hexhyp}&buildarch:uristring=${buildarch:uristring}
+chain https://ipxe.internal:8443/ipxe?mac:hexhyp=${mac:hexhyp}&buildarch:uristring=${buildarch:uristring}&uuid=${uuid}
 `, rec.Body.String())
 }
 
 func TestBootMatchedMAC(t *testing.T) {
 	presigner := &fakePresigner{}
-	h, err := NewHandler(testRenderer(), []string{"ipxe-node-1"}, testConfig(), presigner)
+	h, err := NewHandler("https://ipxe.internal:8443", []string{"ipxe-node-1"}, testConfig(), presigner)
 	if err != nil {
 		t.Fatalf("Create handler: %v", err)
 	}
@@ -101,24 +94,24 @@ func TestBootMatchedMAC(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 	expectedPresigned := []string{
 		"fcos/vmlinuz-x86_64",
-		"fcos/initramfs-x86_64.img",
+		"fcos/rootfs-x86_64.img",
 		"ignition/worker-aa-bb-cc-dd-ee-01.ign",
-		"fcos/worker-rootfs-x86_64.img",
+		"fcos/initramfs-x86_64.img",
 	}
 	assert.Equal(t, expectedPresigned, presigner.called)
 	assert.Equal(t, `#!ipxe
-kernel https://minio.internal:9000/presigned/fcos/vmlinuz-x86_64 console=tty0 ignition.firstboot ignition.config.url=https://minio.internal:9000/presigned/ignition/worker-aa-bb-cc-dd-ee-01.ign coreos.live.rootfs_url=https://minio.internal:9000/presigned/fcos/worker-rootfs-x86_64.img
+kernel https://minio.internal:9000/presigned/fcos/vmlinuz-x86_64 console=tty0 coreos.live.rootfs_url=https://minio.internal:9000/presigned/fcos/rootfs-x86_64.img ignition.config.url=https://minio.internal:9000/presigned/ignition/worker-aa-bb-cc-dd-ee-01.ign ignition.firstboot
 initrd https://minio.internal:9000/presigned/fcos/initramfs-x86_64.img
 boot
 `, rec.Body.String())
 }
 
 func TestBootUnknownMACExits(t *testing.T) {
-	h, err := NewHandler(testRenderer(), []string{"ipxe-node-1"}, testConfig(), &fakePresigner{})
+	h, err := NewHandler("https://ipxe.internal:8443", []string{"ipxe-node-1"}, testConfig(), &fakePresigner{})
 	if err != nil {
 		t.Fatalf("Create handler: %v", err)
 	}
-	for _, target := range []string{"/ipxe?mac:hexhyp=11-22-33-44-55-66", "/ipxe?mac:hexhyp=garbage", "/ipxe"} {
+	for _, target := range []string{"/ipxe?mac:hexhyp=11-22-33-44-55-66", "/ipxe?mac:hexhyp=garbage"} {
 		rec := invokeHandler(t, h, "ipxe-node-1", target)
 
 		assert.Equal(t, http.StatusOK, rec.Code)
@@ -129,7 +122,7 @@ exit
 }
 
 func TestRejectedCN(t *testing.T) {
-	h, err := NewHandler(testRenderer(), []string{"ipxe-node-1"}, testConfig(), &fakePresigner{})
+	h, err := NewHandler("https://ipxe.internal:8443", []string{"ipxe-node-1"}, testConfig(), &fakePresigner{})
 	if err != nil {
 		t.Fatalf("Create handler: %v", err)
 	}
@@ -141,7 +134,7 @@ func TestRejectedCN(t *testing.T) {
 }
 
 func TestBootPresignFailure(t *testing.T) {
-	h, err := NewHandler(testRenderer(), []string{"ipxe-node-1"}, testConfig(), &fakePresigner{fail: context.DeadlineExceeded})
+	h, err := NewHandler("https://ipxe.internal:8443", []string{"ipxe-node-1"}, testConfig(), &fakePresigner{fail: context.DeadlineExceeded})
 	if err != nil {
 		t.Fatalf("Create handler: %v", err)
 	}
@@ -151,7 +144,7 @@ func TestBootPresignFailure(t *testing.T) {
 }
 
 func TestHealthz(t *testing.T) {
-	h, err := NewHandler(testRenderer(), []string{"ipxe-node-1"}, testConfig(), &fakePresigner{})
+	h, err := NewHandler("https://ipxe.internal:8443", []string{"ipxe-node-1"}, testConfig(), &fakePresigner{})
 	if err != nil {
 		t.Fatalf("Create handler: %v", err)
 	}

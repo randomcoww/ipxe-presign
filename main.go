@@ -27,7 +27,6 @@ import (
 	c "github.com/randomcoww/ipxe-presign/config"
 	h "github.com/randomcoww/ipxe-presign/pkg/handler"
 	p "github.com/randomcoww/ipxe-presign/pkg/presigner"
-	r "github.com/randomcoww/ipxe-presign/pkg/render"
 )
 
 func main() {
@@ -60,20 +59,11 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("loading config: %v", err)
 	}
-
-	profiles, err := c.NewProfileConfig(cfg)
-	if err != nil {
-		return fmt.Errorf("new profiles: %v", err)
-	}
-	renderer, err := r.NewRenderFromConfig(cfg)
-	if err != nil {
-		return fmt.Errorf("new renderer: %v", err)
-	}
 	presigner, err := p.NewPresignerFromConfig(cfg)
 	if err != nil {
 		return fmt.Errorf("new presigner: %v", err)
 	}
-	handler, err := h.NewHandler(renderer, cfg.AllowedClientCNs, profiles, presigner)
+	handler, err := h.NewHandler(cfg.AdvertiseURL, cfg.AllowedClientCNs, c.NewProfileConfig(cfg), presigner)
 	if err != nil {
 		return fmt.Errorf("new HTTP handler: %v", err)
 	}
