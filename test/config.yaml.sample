@@ -25,11 +25,11 @@ exitIPXEScript: |
   exit
 
 baseProfile:
-  kernel: "fcos/vmlinuz"
-  initrds:
+  kernelResource: "fcos/vmlinuz"
+  initrdResources:
   - "fcos/initramfs.img"
-  ignition: "ignition/worker.ign"
-  rootfs: "fcos/worker-rootfs.img"
+  ignitionResource: "ignition/worker.ign"
+  rootfsResource: "fcos/worker-rootfs.img"
   kargs:
   - "ignition.firstboot"
   - "ignition.platform.id=metal"
@@ -38,7 +38,7 @@ overlayProfiless:
 - selector:
   - "aa-bb-cc-dd-ee-01"
   - "aa-bb-cc-dd-ee-02"
-  ignition: "ignition/worker-v1.ign"
+  ignitionResource: "ignition/worker-v1.ign"
   kargs:
   - "console=tty0"
 - selector:
