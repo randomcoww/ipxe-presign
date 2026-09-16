@@ -32,6 +32,9 @@ func NewProfileConfig(raw *YamlConfig) (*Profiles, error) {
 }
 
 func (p *Profile) mergeOverlay(overlay *Profile) {
+	if overlay == nil {
+		return
+	}
 	if overlay.KernelResource != "" {
 		p.KernelResource = overlay.KernelResource
 	}
