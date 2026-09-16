@@ -13,7 +13,6 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"testing"
-	// "text/template"
 	"time"
 
 	"github.com/randomcoww/ipxe-presign/config"
