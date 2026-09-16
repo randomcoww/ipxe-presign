@@ -46,9 +46,6 @@ func NewHandler(allowedClientCNs []string, p *config.Profiles, pr URLPresigner) 
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch r.URL.Path {
-	case "/healthz":
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("ok\n"))
 	case "/boot.ipxe":
 		h.serveChain(w, r)
 	case "/ipxe":
@@ -89,21 +86,18 @@ func (h *Handler) serveBoot(w http.ResponseWriter, r *http.Request) {
 	for k, v := range r.URL.Query() {
 		selector[k] = v[len(v)-1]
 	}
-
 	profile, ok := h.Profiles.GetMerged(selector)
 	if !ok {
 		w.WriteHeader(http.StatusOK)
 		_, _ = fmt.Fprint(w, ipxeExit)
 		return
 	}
-
 	script, err := h.renderIPXETemplate(r.Context(), profile, selector)
 	if err != nil {
 		log.Printf("presigning resources for profile: %v", err)
 		http.Error(w, "failed to generate resource URLs", http.StatusInternalServerError)
 		return
 	}
-
 	log.Printf("served boot script for profile (Selector %v)", selector)
 	w.WriteHeader(http.StatusOK)
 	_, _ = fmt.Fprint(w, script)

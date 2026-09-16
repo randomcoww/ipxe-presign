@@ -13,6 +13,7 @@ import (
 
 type YamlConfig struct {
 	Listen           string        `yaml:"listen,omitempty"`
+	ListenHealthz    string        `yaml:"listenHealthz,omitempty"`
 	ServerCert       string        `yaml:"serverCert"`
 	ServerKey        string        `yaml:"serverKey"`
 	TrustedCAs       []string      `yaml:"trustedCAs,omitempty"`
@@ -62,6 +63,16 @@ func LoadConfig(path string) (*YamlConfig, error) {
 		return nil, fmt.Errorf("parse listen address and port: %w", err)
 	}
 	raw.Listen = fmt.Sprintf("%s:%d", addrPort.Addr(), addrPort.Port())
+
+	// --- listen healthz ---
+
+	if raw.ListenHealthz != "" {
+		addrPort, err = netip.ParseAddrPort(raw.ListenHealthz)
+		if err != nil {
+			return nil, fmt.Errorf("parse listen healthz address and port: %w", err)
+		}
+		raw.ListenHealthz = fmt.Sprintf("%s:%d", addrPort.Addr(), addrPort.Port())
+	}
 
 	// --- server tls ---
 

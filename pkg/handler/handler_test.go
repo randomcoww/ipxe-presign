@@ -142,17 +142,6 @@ func TestBootPresignFailure(t *testing.T) {
 	assert.Equal(t, http.StatusInternalServerError, rec.Code)
 }
 
-func TestHealthz(t *testing.T) {
-	h, err := NewHandler([]string{"ipxe-node-1"}, testConfig(), &fakePresigner{})
-	if err != nil {
-		t.Fatalf("Create handler: %v", err)
-	}
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/healthz", nil))
-
-	assert.Equal(t, http.StatusOK, rec.Code)
-}
-
 func TestBuildTLSConfigRequiresClientCert(t *testing.T) {
 	tlsDir := t.TempDir()
 	if err := tlstest.WriteTestCA(t, tlsDir); err != nil {

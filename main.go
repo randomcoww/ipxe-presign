@@ -17,7 +17,6 @@ import (
 	"flag"
 	"fmt"
 	"log"
-	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -67,28 +66,37 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("new HTTP handler: %v", err)
 	}
-
 	srv := &http.Server{
-		Addr:         cfg.Listen,
-		Handler:      handler,
-		TLSConfig:    cfg.ServerTLSConfig,
-		ReadTimeout:  10 * time.Second,
-		WriteTimeout: 10 * time.Second,
+		Addr:      cfg.Listen,
+		Handler:   handler,
+		TLSConfig: cfg.ServerTLSConfig,
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	ln, err := net.Listen("tcp", cfg.Listen)
-	if err != nil {
-		return fmt.Errorf("listening on %s: %v", cfg.Listen, err)
-	}
-
 	errCh := make(chan error, 1)
 	go func() {
 		log.Printf("listening on %s", cfg.Listen)
-		errCh <- srv.ServeTLS(ln, "", "")
+		errCh <- srv.ListenAndServeTLS("", "")
 	}()
+
+	if cfg.ListenHealthz != "" {
+		healthz := http.NewServeMux()
+		healthz.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte("OK"))
+		})
+		healthzSrv := &http.Server{
+			Addr:    cfg.ListenHealthz,
+			Handler: healthz,
+		}
+
+		go func() {
+			log.Printf("listening healthz on %s", cfg.ListenHealthz)
+			errCh <- healthzSrv.ListenAndServe()
+		}()
+	}
 
 	select {
 	case <-ctx.Done():

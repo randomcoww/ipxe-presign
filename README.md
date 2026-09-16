@@ -142,6 +142,7 @@ podman run -it --rm  \
   -e AWS_SECRET_ACCESS_KEY=minioPassword \
   -v $(pwd)/test:/config \
   -p 8080:8080 \
+  -p 8443:8443 \
   test \
   -config /config/config.yaml.sample
 ```
