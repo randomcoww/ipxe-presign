@@ -28,9 +28,7 @@ type YamlConfig struct {
 	ChainIPXETemplate string `yaml:"chainIPXETemplate,omitempty"`
 	ExitIPXEScript    string `yaml:"exitIPXETemplate,omitempty"`
 
-	BaseProfile     *Profile   `yaml:"baseProfile"`
-	OverlayProfiles []*Profile `yaml:"overlayProfiles"`
-
+	Profiles        []*Profile `yaml:"profiles"`
 	ServerTLSConfig *tls.Config
 }
 
@@ -38,12 +36,10 @@ type YamlConfig struct {
 // inside the configured S3 bucket and is handed to the node as a
 // short-lived pre-signed URL.
 type Profile struct {
-	Selector         []string `yaml:"selector,omitempty"`
-	KernelResource   string   `yaml:"kernelResource,omitempty"`
-	InitrdResources  []string `yaml:"initrdResources,omitempty"`
-	IgnitionResource string   `yaml:"ignitionResource,omitempty"`
-	RootfsResource   string   `yaml:"rootfsResource,omitempty"`
-	Kargs            []string `yaml:"kargs,omitempty"`
+	Selector   map[string][]string `yaml:"selector,omitempty"`
+	KernelURL  string              `yaml:"kernelURL,omitempty"`
+	InitrdURLs []string            `yaml:"initrdURLs,omitempty"`
+	Kargs      []string            `yaml:"kargs,omitempty"`
 }
 
 func LoadConfig(path string) (*YamlConfig, error) {
