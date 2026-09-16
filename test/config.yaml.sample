@@ -19,13 +19,13 @@ profiles:
     - aa-bb-cc-dd-ee-02
     "buildarch:uristring":
     - x86_64
-  kernelURL: {{ presign "fcos/vmlinuz-${buildarch:uristring}" }}
+  kernelURL: '{{ presign "fcos/vmlinuz-${buildarch:uristring}" }}'
   initrdURLs:
-  - {{ presign "fcos/initramfs-${buildarch:uristring}.img" }}
+  - '{{ presign "fcos/initramfs-${buildarch:uristring}.img" }}'
   kargs:
   - console=tty0
-  - ignition.config.url={{ presign "ignition/worker-${mac:hexhyp}.ign" }}
-  - coreos.live.rootfs_url={{ presign "fcos/rootfs-${buildarch:uristring}.img" }}
+  - 'ignition.config.url={{ presign "ignition/worker-${mac:hexhyp}.ign" }}'
+  - 'coreos.live.rootfs_url={{ presign "fcos/rootfs-${buildarch:uristring}.img" }}'
 - selector:
     "mac:hexhyp":
     - aa-bb-cc-dd-ee-02
