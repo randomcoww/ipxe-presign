@@ -42,10 +42,10 @@ func testConfig() *config.Profiles {
 		BaseProfile: &config.Profile{},
 		Profiles: map[string]*config.Profile{
 			"aa-bb-cc-dd-ee-01": {
-				KernelResource:   "fcos/vmlinuz",
-				InitrdResources:  []string{"fcos/initramfs.img"},
-				IgnitionResource: "ignition/worker.ign",
-				RootfsResource:   "fcos/worker-rootfs.img",
+				KernelResource:   "fcos/vmlinuz-${buildarch:uristring}",
+				InitrdResources:  []string{"fcos/initramfs-${buildarch:uristring}.img"},
+				IgnitionResource: "ignition/worker-${mac:hexhyp}.ign",
+				RootfsResource:   "fcos/worker-rootfs-${buildarch:uristring}.img",
 				Kargs:            []string{"console=tty0", "ignition.firstboot"},
 				Selector:         nil,
 			},
@@ -61,7 +61,7 @@ initrd{{range .InitrdURLs}} {{.}}{{end}}
 boot
 `)),
 		ChainIPXEScript: `#!ipxe
-chain https://ipxe.internal:8443/ipxe?mac=${mac:hexhyp}
+chain https://ipxe.internal:8443/ipxe?mac:hexhyp=${mac:hexhyp}&buildarch:uristring=${buildarch:uristring}
 `,
 		ExitIPXEScript: `#!ipxe
 exit
@@ -86,7 +86,7 @@ func TestEntryAuthorizedAndRenders(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, rec.Code)
 	assert.Equal(t, `#!ipxe
-chain https://ipxe.internal:8443/ipxe?mac=${mac:hexhyp}
+chain https://ipxe.internal:8443/ipxe?mac:hexhyp=${mac:hexhyp}&buildarch:uristring=${buildarch:uristring}
 `, rec.Body.String())
 }
 
@@ -96,19 +96,19 @@ func TestBootMatchedMAC(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create handler: %v", err)
 	}
-	rec := invokeHandler(t, h, "ipxe-node-1", "/ipxe?mac=aa-bb-cc-dd-ee-01")
+	rec := invokeHandler(t, h, "ipxe-node-1", "/ipxe?mac:hexhyp=aa-bb-cc-dd-ee-01&buildarch:uristring=x86_64")
 
 	assert.Equal(t, http.StatusOK, rec.Code)
 	expectedPresigned := []string{
-		"fcos/vmlinuz",
-		"fcos/initramfs.img",
-		"ignition/worker.ign",
-		"fcos/worker-rootfs.img",
+		"fcos/vmlinuz-x86_64",
+		"fcos/initramfs-x86_64.img",
+		"ignition/worker-aa-bb-cc-dd-ee-01.ign",
+		"fcos/worker-rootfs-x86_64.img",
 	}
 	assert.Equal(t, expectedPresigned, presigner.called)
 	assert.Equal(t, `#!ipxe
-kernel https://minio.internal:9000/presigned/fcos/vmlinuz console=tty0 ignition.firstboot ignition.config.url=https://minio.internal:9000/presigned/ignition/worker.ign coreos.live.rootfs_url=https://minio.internal:9000/presigned/fcos/worker-rootfs.img
-initrd https://minio.internal:9000/presigned/fcos/initramfs.img
+kernel https://minio.internal:9000/presigned/fcos/vmlinuz-x86_64 console=tty0 ignition.firstboot ignition.config.url=https://minio.internal:9000/presigned/ignition/worker-aa-bb-cc-dd-ee-01.ign coreos.live.rootfs_url=https://minio.internal:9000/presigned/fcos/worker-rootfs-x86_64.img
+initrd https://minio.internal:9000/presigned/fcos/initramfs-x86_64.img
 boot
 `, rec.Body.String())
 }
@@ -118,7 +118,7 @@ func TestBootUnknownMACExits(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create handler: %v", err)
 	}
-	for _, target := range []string{"/ipxe?mac=11-22-33-44-55-66", "/ipxe?mac=garbage", "/ipxe"} {
+	for _, target := range []string{"/ipxe?mac:hexhyp=11-22-33-44-55-66", "/ipxe?mac:hexhyp=garbage", "/ipxe"} {
 		rec := invokeHandler(t, h, "ipxe-node-1", target)
 
 		assert.Equal(t, http.StatusOK, rec.Code)
@@ -133,7 +133,7 @@ func TestRejectedCN(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create handler: %v", err)
 	}
-	for _, target := range []string{"/boot.ipxe", "/ipxe?mac=aa-bb-cc-dd-ee-01"} {
+	for _, target := range []string{"/boot.ipxe", "/ipxe?mac:hexhyp=aa-bb-cc-dd-ee-01&buildarch:uristring=x86_64"} {
 		rec := invokeHandler(t, h, "not-allowed", target)
 
 		assert.Equal(t, http.StatusForbidden, rec.Code)
@@ -145,7 +145,7 @@ func TestBootPresignFailure(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create handler: %v", err)
 	}
-	rec := invokeHandler(t, h, "ipxe-node-1", "/ipxe?mac=aa-bb-cc-dd-ee-01")
+	rec := invokeHandler(t, h, "ipxe-node-1", "/ipxe?mac:hexhyp=aa-bb-cc-dd-ee-01&buildarch:uristring=x86_64")
 
 	assert.Equal(t, http.StatusInternalServerError, rec.Code)
 }

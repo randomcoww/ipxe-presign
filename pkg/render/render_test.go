@@ -12,7 +12,7 @@ func TestRenderConfig(t *testing.T) {
 	yamlConfig := &config.YamlConfig{
 		AdvertiseURL: "https://ipxe.local:8443/ipxe",
 		ChainIPXETemplate: `#!ipxe
-chain {{.AdvertiseURL}}?mac=${mac:hexhyp}
+chain {{.AdvertiseURL}}?mac:hexhyp=${mac:hexhyp}&buildarch:uristring=${buildarch:uristring}
 `,
 		BootIPXETemplate: `#!ipxe
 kernel {{.KernelURL}}{{range .Kargs}} {{.}}{{end}} ignition.config.url={{.IgnitionURL}} coreos.live.rootfs_url={{.RootfsURL}}
@@ -28,7 +28,7 @@ exit
 	assert.NoError(t, err)
 
 	assert.Equal(t, fmt.Sprintf(`#!ipxe
-chain %s?mac=${mac:hexhyp}
+chain %s?mac:hexhyp=${mac:hexhyp}&buildarch:uristring=${buildarch:uristring}
 `, "https://ipxe.local:8443/ipxe"), render.ChainIPXEScript)
 
 	assert.Equal(t, `#!ipxe

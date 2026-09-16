@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"strings"
 
 	"github.com/randomcoww/ipxe-presign/config"
@@ -54,7 +55,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok\n"))
 	case "/boot.ipxe":
-		h.serveEntry(w, r)
+		h.serveChain(w, r)
 	case "/ipxe":
 		h.serveBoot(w, r)
 	default:
@@ -64,7 +65,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 // serveEntry renders the first-stage script. It carries no node
 // identity, so only the CN allowlist applies.
-func (h *Handler) serveEntry(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) serveChain(w http.ResponseWriter, r *http.Request) {
 	if !h.authorize(w, r) {
 		return
 	}
@@ -89,7 +90,7 @@ func (h *Handler) serveBoot(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 
-	mac := strings.ToLower(r.URL.Query().Get("mac"))
+	mac := strings.ToLower(r.URL.Query().Get("mac:hexhyp"))
 	profile, ok := h.Profiles.Profiles[mac]
 	if !ok {
 		w.WriteHeader(http.StatusOK)
@@ -97,10 +98,15 @@ func (h *Handler) serveBoot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	queryKV := make(map[string]string)
+	for k, v := range r.URL.Query() {
+		queryKV[k] = v[len(v)-1]
+	}
+
 	ipxe := &render.BootIPXE{
 		Kargs: profile.Kargs,
 	}
-	if err := h.appendPresignedURLs(r.Context(), profile, ipxe); err != nil {
+	if err := h.appendPresignedURLs(r.Context(), profile, ipxe, queryKV); err != nil {
 		log.Printf("presigning resources for profile: %v", err)
 		http.Error(w, "failed to generate resource URLs", http.StatusInternalServerError)
 		return
@@ -118,24 +124,29 @@ func (h *Handler) serveBoot(w http.ResponseWriter, r *http.Request) {
 	_, _ = fmt.Fprint(w, script)
 }
 
-func (h *Handler) appendPresignedURLs(ctx context.Context, p *config.Profile, ipxe *render.BootIPXE) error {
+func (h *Handler) appendPresignedURLs(ctx context.Context, p *config.Profile, ipxe *render.BootIPXE, queryKV map[string]string) error {
 	var err error
-	ipxe.KernelURL, err = h.Presigner.URL(ctx, p.KernelResource)
+	for k, v := range queryKV {
+		os.Setenv(k, v)
+		defer os.Unsetenv(k)
+	}
+
+	ipxe.KernelURL, err = h.Presigner.URL(ctx, os.ExpandEnv(p.KernelResource))
 	if err != nil {
 		return err
 	}
 	for _, res := range p.InitrdResources {
-		u, err := h.Presigner.URL(ctx, res)
+		u, err := h.Presigner.URL(ctx, os.ExpandEnv(res))
 		if err != nil {
 			return err
 		}
 		ipxe.InitrdURLs = append(ipxe.InitrdURLs, u)
 	}
-	ipxe.IgnitionURL, err = h.Presigner.URL(ctx, p.IgnitionResource)
+	ipxe.IgnitionURL, err = h.Presigner.URL(ctx, os.ExpandEnv(p.IgnitionResource))
 	if err != nil {
 		return err
 	}
-	ipxe.RootfsURL, err = h.Presigner.URL(ctx, p.RootfsResource)
+	ipxe.RootfsURL, err = h.Presigner.URL(ctx, os.ExpandEnv(p.RootfsResource))
 	if err != nil {
 		return err
 	}

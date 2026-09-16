@@ -61,7 +61,7 @@ func LoadConfig(path string) (*YamlConfig, error) {
 		// and ${uuid} at parse time, then chains to the second-stage URL with
 		// the node's MAC address — which is what selects the boot profile.
 		ChainIPXETemplate: `#!ipxe
-chain {{.AdvertiseURL}}?mac=${mac:hexhyp}
+chain {{.AdvertiseURL}}?mac:hexhyp=${mac:hexhyp}&buildarch:uristring=${buildarch:uristring}
 `,
 		// Second-stage boot script. The presigned kernel,
 		// initrd, ignition and rootfs URLs are substituted in; ignition and
