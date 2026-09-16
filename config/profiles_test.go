@@ -10,6 +10,12 @@ func TestProfileConfig(t *testing.T) {
 	yamlConfig := &YamlConfig{
 		Profiles: []*Profile{
 			{
+				Selector: map[string][]string{},
+				InitrdURLs: []string{
+					"fcos/initramfs.img",
+				},
+			},
+			{
 				Selector: map[string][]string{
 					"mac:hexhyp": []string{
 						"aa-bb-cc-dd-ee-01",
@@ -39,7 +45,7 @@ func TestProfileConfig(t *testing.T) {
 						"aa-bb-cc-dd-ee-01",
 					},
 					"buildarch:uristring": []string{
-						"x86_64",
+						"aarch64",
 					},
 				},
 				Kargs: []string{
@@ -50,6 +56,9 @@ func TestProfileConfig(t *testing.T) {
 				Selector: map[string][]string{
 					"mac:hexhyp": []string{
 						"aa-bb-cc-dd-ee-02",
+					},
+					"buildarch:uristring": []string{
+						"x86_64",
 					},
 				},
 				InitrdURLs: []string{
@@ -62,125 +71,22 @@ func TestProfileConfig(t *testing.T) {
 		},
 	}
 
-	expectedSelectorMap := map[string]map[string][]*Profile{
-		"mac:hexhyp": map[string][]*Profile{
-			"aa-bb-cc-dd-ee-01": []*Profile{
-				{
-					Selector: map[string][]string{
-						"mac:hexhyp": []string{
-							"aa-bb-cc-dd-ee-01",
-							"aa-bb-cc-dd-ee-02",
-						},
-						"buildarch:uristring": []string{
-							"x86_64",
-						},
-					},
-					Kargs: []string{
-						"console=tty0",
-					},
-				},
-				{
-					Selector: map[string][]string{
-						"mac:hexhyp": []string{
-							"aa-bb-cc-dd-ee-01",
-						},
-					},
-					Kargs: []string{
-						"console=ttyS0,115200n8",
-					},
-				},
-				{
-					Selector: map[string][]string{
-						"mac:hexhyp": []string{
-							"aa-bb-cc-dd-ee-01",
-						},
-						"buildarch:uristring": []string{
-							"x86_64",
-						},
-					},
-					Kargs: []string{
-						"console=ttyS0",
-					},
-				},
-			},
-			"aa-bb-cc-dd-ee-02": []*Profile{
-				{
-					Selector: map[string][]string{
-						"mac:hexhyp": []string{
-							"aa-bb-cc-dd-ee-01",
-							"aa-bb-cc-dd-ee-02",
-						},
-						"buildarch:uristring": []string{
-							"x86_64",
-						},
-					},
-					Kargs: []string{
-						"console=tty0",
-					},
-				},
-				{
-					Selector: map[string][]string{
-						"mac:hexhyp": []string{
-							"aa-bb-cc-dd-ee-02",
-						},
-					},
-					InitrdURLs: []string{
-						"fcos/initramfs-2.img",
-					},
-					Kargs: []string{
-						"console=tty0",
-					},
-				},
-			},
-		},
-		"buildarch:uristring": map[string][]*Profile{
-			"x86_64": []*Profile{
-				{
-					Selector: map[string][]string{
-						"mac:hexhyp": []string{
-							"aa-bb-cc-dd-ee-01",
-							"aa-bb-cc-dd-ee-02",
-						},
-						"buildarch:uristring": []string{
-							"x86_64",
-						},
-					},
-					Kargs: []string{
-						"console=tty0",
-					},
-				},
-				{
-					Selector: map[string][]string{
-						"mac:hexhyp": []string{
-							"aa-bb-cc-dd-ee-01",
-						},
-						"buildarch:uristring": []string{
-							"x86_64",
-						},
-					},
-					Kargs: []string{
-						"console=ttyS0",
-					},
-				},
-			},
-		},
-	}
+	profiles := NewProfileConfig(yamlConfig)
 
-	expectedMergedProfile := &Profile{
-		Selector: nil,
-		Kargs: []string{
-			"console=tty0",
-			"console=ttyS0",
-		},
-	}
-
-	profiles, err := NewProfileConfig(yamlConfig)
-	assert.NoError(t, err)
-	assert.Equal(t, expectedSelectorMap, profiles.selectorMap)
-
-	mergeddProfiles := profiles.GetMerged(map[string]string{
+	mergedProfiles, ok := profiles.GetMerged(map[string]string{
 		"mac:hexhyp":          "aa-bb-cc-dd-ee-01",
 		"buildarch:uristring": "x86_64",
 	})
-	assert.Equal(t, expectedMergedProfile, mergeddProfiles)
+	expectedMergedProfile := &Profile{
+		Selector: nil,
+		InitrdURLs: []string{
+			"fcos/initramfs.img",
+		},
+		Kargs: []string{
+			"console=tty0",
+			"console=ttyS0,115200n8",
+		},
+	}
+	assert.Equal(t, expectedMergedProfile, mergedProfiles)
+	assert.True(t, ok)
 }
