@@ -70,8 +70,8 @@ trustedCAs:
 - /config/outputs/server/ca.crt
 allowedClientCNs:
 - ipxe-node-1
-s3Endpoint: https://127.0.0.1:9000
-s3Bucket: boot
+s3Endpoint: https://minio.local:9000
+s3Bucket: ipxe
 s3TrustedCAs:
 - /config/outputs/minio/certs/CAs/ca.crt
 PresignTTL: 60s
@@ -84,13 +84,13 @@ profiles:
     - aa-bb-cc-dd-ee-02
     "buildarch:uristring":
     - x86_64
-  kernelURL: '{{ presign "fcos/vmlinuz-${buildarch:uristring}" }}'
+  kernelURL: "https://minio.local:9000/boot/vmlinuz-${buildarch:uristring}"
   initrdURLs:
-  - '{{ presign "fcos/initramfs-${buildarch:uristring}.img" }}'
+  - "https://minio.local:9000/boot/initramfs-${buildarch:uristring}.img"
   kargs:
   - console=tty0
   - 'ignition.config.url={{ presign "ignition/worker-${mac:hexhyp}.ign" }}'
-  - 'coreos.live.rootfs_url={{ presign "fcos/rootfs-${buildarch:uristring}.img" }}'
+  - "coreos.live.rootfs_url=https://minio.local:9000/boot/rootfs-${buildarch:uristring}.img"
 - selector:
     "mac:hexhyp":
     - aa-bb-cc-dd-ee-02
