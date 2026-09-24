@@ -12,7 +12,7 @@ import (
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
 	"github.com/randomcoww/ipxe-presign/config"
-	"github.com/randomcoww/ipxe-presign/pkg/tlsutil"
+	"github.com/randomcoww/ipxe-presign/internal/tlsutil"
 )
 
 // Presigner issues short-lived pre-signed GET URLs for objects in a

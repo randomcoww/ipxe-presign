@@ -7,7 +7,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/randomcoww/ipxe-presign/pkg/tlsutil"
+	"github.com/randomcoww/ipxe-presign/internal/tlsutil"
 	"gopkg.in/yaml.v3"
 )
 

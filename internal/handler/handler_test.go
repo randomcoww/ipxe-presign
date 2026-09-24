@@ -16,7 +16,7 @@ import (
 	"time"
 
 	"github.com/randomcoww/ipxe-presign/config"
-	"github.com/randomcoww/ipxe-presign/pkg/tlsutil"
+	"github.com/randomcoww/ipxe-presign/internal/tlsutil"
 	"github.com/randomcoww/ipxe-presign/tlstest"
 	"github.com/stretchr/testify/assert"
 )

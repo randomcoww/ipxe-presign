@@ -24,8 +24,8 @@ import (
 	"time"
 
 	c "github.com/randomcoww/ipxe-presign/config"
-	h "github.com/randomcoww/ipxe-presign/pkg/handler"
-	p "github.com/randomcoww/ipxe-presign/pkg/presigner"
+	h "github.com/randomcoww/ipxe-presign/internal/handler"
+	p "github.com/randomcoww/ipxe-presign/internal/presigner"
 )
 
 func main() {

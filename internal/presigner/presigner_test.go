@@ -15,7 +15,7 @@ import (
 
 	"github.com/minio/minio-go/v7"
 	"github.com/randomcoww/ipxe-presign/config"
-	"github.com/randomcoww/ipxe-presign/pkg/tlsutil"
+	"github.com/randomcoww/ipxe-presign/internal/tlsutil"
 	"github.com/stretchr/testify/assert"
 )
 
