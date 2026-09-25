@@ -8,45 +8,45 @@ import (
 	"os"
 )
 
-// buildTLSConfig assembles a TLS configuration that requires and
-// verifies client certificates signed by the given CA.
-func BuildTLSConfig(certPath, keyPath string, caPaths []string) (*tls.Config, error) {
-	cert, err := tls.LoadX509KeyPair(certPath, keyPath)
+func BuildTLSConfig(certFile, keyFile string, trustedCAFiles []string) (*tls.Config, error) {
+	pool, err := newCertPool(trustedCAFiles)
 	if err != nil {
-		return nil, fmt.Errorf("loading server key pair: %w", err)
+		return nil, fmt.Errorf("no valid certificates found in %v", trustedCAFiles)
 	}
-	pool, err := newCertPool(caPaths)
-	if err != nil {
-		return nil, fmt.Errorf("no valid certificates found in %v", caPaths)
-	}
-
-	return &tls.Config{
-		Certificates: []tls.Certificate{cert},
-		ClientAuth:   tls.RequireAndVerifyClientCert,
-		ClientCAs:    pool,
-		MinVersion:   tls.VersionTLS12,
-	}, nil
-}
-
-func BuildTLSCAConfig(caPaths []string) (*tls.Config, error) {
-	pool, err := newCertPool(caPaths)
-	if err != nil {
-		return nil, fmt.Errorf("no valid certificates found in %v", caPaths)
-	}
-
-	return &tls.Config{
+	config := &tls.Config{
+		ClientAuth: tls.RequireAndVerifyClientCert,
+		ClientCAs:  pool,
 		MinVersion: tls.VersionTLS13,
+	}
+
+	config.GetCertificate = func(clientHello *tls.ClientHelloInfo) (*tls.Certificate, error) {
+		return newCert(certFile, keyFile)
+	}
+	config.GetClientCertificate = func(unused *tls.CertificateRequestInfo) (*tls.Certificate, error) {
+		return newCert(certFile, keyFile)
+	}
+	return config, nil
+}
+
+func BuildTLSCAConfig(trustedCAFiles []string) (*tls.Config, error) {
+	pool, err := newCertPool(trustedCAFiles)
+	if err != nil {
+		return nil, fmt.Errorf("no valid certificates found in %v", trustedCAFiles)
+	}
+
+	return &tls.Config{
 		RootCAs:    pool,
+		MinVersion: tls.VersionTLS13,
 	}, nil
 }
 
-func newCertPool(caPaths []string) (*x509.CertPool, error) {
+func newCertPool(trustedCAFiles []string) (*x509.CertPool, error) {
 	certPool, err := x509.SystemCertPool()
 	if err != nil {
 		certPool = x509.NewCertPool()
 	}
-	for _, caPath := range caPaths {
-		pemByte, err := os.ReadFile(caPath)
+	for _, f := range trustedCAFiles {
+		pemByte, err := os.ReadFile(f)
 		if err != nil {
 			return nil, err
 		}
@@ -66,4 +66,22 @@ func newCertPool(caPaths []string) (*x509.CertPool, error) {
 	}
 
 	return certPool, nil
+}
+
+func newCert(certFile, keyFile string) (*tls.Certificate, error) {
+	cert, err := os.ReadFile(certFile)
+	if err != nil {
+		return nil, err
+	}
+
+	key, err := os.ReadFile(keyFile)
+	if err != nil {
+		return nil, err
+	}
+
+	tlsCert, err := tls.X509KeyPair(cert, key)
+	if err != nil {
+		return nil, err
+	}
+	return &tlsCert, nil
 }
