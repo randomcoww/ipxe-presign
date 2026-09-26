@@ -16,7 +16,7 @@ func BuildTLSConfig(certFile, keyFile string, trustedCAFiles []string) (*tls.Con
 	config := &tls.Config{
 		ClientAuth: tls.RequireAndVerifyClientCert,
 		ClientCAs:  pool,
-		MinVersion: tls.VersionTLS13,
+		MinVersion: tls.VersionTLS12,
 	}
 
 	config.GetCertificate = func(clientHello *tls.ClientHelloInfo) (*tls.Certificate, error) {
