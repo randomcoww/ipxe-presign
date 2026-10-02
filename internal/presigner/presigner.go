@@ -19,10 +19,9 @@ import (
 // single bucket. Presigning is a local SigV4 operation — with a region
 // configured, no network round-trip to the S3 endpoint is performed.
 type Presigner struct {
-	client    *minio.Client
-	bucket    string
-	ttl       time.Duration
-	TLSConfig *tls.Config
+	client *minio.Client
+	bucket string
+	ttl    time.Duration
 }
 
 func NewPresignerFromConfig(raw *config.YamlConfig) (*Presigner, error) {
@@ -43,7 +42,7 @@ func NewPresignerFromConfig(raw *config.YamlConfig) (*Presigner, error) {
 	if err != nil {
 		return nil, fmt.Errorf("building S3 TLS config: %w", err)
 	}
-	presigner, err := NewPresigner(fmt.Sprintf("%s://%s", u.Scheme, u.Host), raw.S3Region, raw.S3Bucket, tlsConfig, raw.PresignTTL)
+	presigner, err := NewPresigner(u.Host, raw.S3Region, raw.S3Bucket, tlsConfig, raw.PresignTTL)
 	if err != nil {
 		return nil, fmt.Errorf("presigner client: %v", err)
 	}
@@ -55,13 +54,6 @@ func NewPresignerFromConfig(raw *config.YamlConfig) (*Presigner, error) {
 // set so presigning never needs to resolve the bucket location
 // remotely.
 func NewPresigner(endpoint, region, bucket string, tlsConfig *tls.Config, ttl time.Duration) (*Presigner, error) {
-	u, err := url.Parse(endpoint)
-	if err != nil {
-		return nil, err
-	}
-	if u.Scheme != "https" {
-		return nil, fmt.Errorf("S3 URL scheme must be HTTPS")
-	}
 	opts := &minio.Options{
 		Creds:  credentials.NewEnvAWS(),
 		Secure: true,
@@ -76,7 +68,7 @@ func NewPresigner(endpoint, region, bucket string, tlsConfig *tls.Config, ttl ti
 			TLSClientConfig:     tlsConfig,
 		},
 	}
-	client, err := minio.New(u.Host, opts)
+	client, err := minio.New(endpoint, opts)
 	if err != nil {
 		return nil, fmt.Errorf("creating S3 client: %w", err)
 	}

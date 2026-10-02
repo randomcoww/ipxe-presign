@@ -45,7 +45,7 @@ func TestPresigner(t *testing.T) {
 
 	// --- upload some test data ---
 
-	if _, err := uploadTestData(t, presigner, clientCtx, "test-key-1", bytes.NewBufferString("test-val-1")); err != nil {
+	if _, err := uploadTestData(t, presigner.client, yamlConfig.S3Bucket, clientCtx, "test-key-1", bytes.NewBufferString("test-val-1")); err != nil {
 		t.Fatalf("Create test data: %v", err)
 	}
 
@@ -94,7 +94,7 @@ func TestPresigner(t *testing.T) {
 
 // --- helper ---
 
-func uploadTestData(t *testing.T, p *Presigner, ctx context.Context, key string, reader io.Reader) (int64, error) {
+func uploadTestData(t *testing.T, client *minio.Client, bucket string, ctx context.Context, key string, reader io.Reader) (int64, error) {
 	t.Helper()
 
 	buf := &bytes.Buffer{}
@@ -102,13 +102,10 @@ func uploadTestData(t *testing.T, p *Presigner, ctx context.Context, key string,
 	if err != nil {
 		return size, fmt.Errorf("upload: failed to create buffer: %w", err)
 	}
-	if size == 0 {
-		return size, fmt.Errorf("upload: size is 0")
-	}
-	if _, err = p.client.PutObject(ctx, p.bucket, key, buf, size, minio.PutObjectOptions{
+	if _, err = client.PutObject(ctx, bucket, key, buf, size, minio.PutObjectOptions{
 		AutoChecksum: minio.ChecksumCRC32,
 	}); err != nil {
-		if cleanupErr := p.client.RemoveIncompleteUpload(ctx, p.bucket, key); cleanupErr != nil {
+		if cleanupErr := client.RemoveIncompleteUpload(ctx, bucket, key); cleanupErr != nil {
 			return size, fmt.Errorf("upload: failed to put object: %w\n  failed to cleanup incomplete upload: %w", err, cleanupErr)
 		}
 		return size, fmt.Errorf("upload: failed to put object: %w", err)

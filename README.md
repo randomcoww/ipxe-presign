@@ -113,7 +113,7 @@ profiles:
 | `GET /boot.ipxe` | First-stage entry script (static template + advertise URL) |
 | `GET /ipxe?mac=...` | Second-stage boot script, profile selected by MAC |
 
-## MinIO instance for testing
+## Build notes
 
 ```bash
 tofu() {
@@ -133,6 +133,14 @@ tofu -chdir=test init -upgrade && tofu -chdir=test apply
 
 ```bash
 podman play kube test/outputs/minio.yaml
+```
+
+```bash
+podman run -it --rm \
+  -v $(pwd):/go/src \
+  -w /go/src \
+  --net host \
+  docker.io/golang:alpine sh
 ```
 
 ```bash
