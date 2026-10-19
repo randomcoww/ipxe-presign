@@ -13,6 +13,8 @@ RUN set -x \
 
 FROM scratch
 
+ENV SSL_CERT_FILE /etc/ssl/certs/ca-certificates.crt
+
 COPY --from=build /go/src/ipxe-presign /bin/
 COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 
